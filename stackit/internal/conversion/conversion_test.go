@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,7 +25,7 @@ func TestFromTerraformStringMapToInterfaceMap(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    map[string]interface{}
+		want    map[string]any
 		wantErr bool
 	}{
 		{
@@ -37,7 +38,7 @@ func TestFromTerraformStringMapToInterfaceMap(t *testing.T) {
 					"key3": types.StringValue("value3"),
 				}),
 			},
-			want: map[string]interface{}{
+			want: map[string]any{
 				"key":  "value",
 				"key2": "value2",
 				"key3": "value3",
@@ -50,7 +51,7 @@ func TestFromTerraformStringMapToInterfaceMap(t *testing.T) {
 				ctx: context.Background(),
 				m:   types.MapValueMust(types.StringType, map[string]attr.Value{}),
 			},
-			want:    map[string]interface{}{},
+			want:    map[string]any{},
 			wantErr: false,
 		},
 		{
@@ -59,7 +60,7 @@ func TestFromTerraformStringMapToInterfaceMap(t *testing.T) {
 				ctx: context.Background(),
 				m:   types.MapNull(types.StringType),
 			},
-			want:    map[string]interface{}{},
+			want:    map[string]any{},
 			wantErr: false,
 		},
 		{
@@ -92,7 +93,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 		description   string
 		currentLabels types.Map
 		desiredLabels types.Map
-		expected      map[string]interface{}
+		expected      map[string]any
 		isValid       bool
 	}{
 		{
@@ -103,7 +104,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 			types.MapValueMust(types.StringType, map[string]attr.Value{
 				"key": types.StringValue("value"),
 			}),
-			map[string]interface{}{
+			map[string]any{
 				"key": "value",
 			},
 			true,
@@ -116,7 +117,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 			types.MapValueMust(types.StringType, map[string]attr.Value{
 				"key": types.StringValue("updated_value"),
 			}),
-			map[string]interface{}{
+			map[string]any{
 				"key": "updated_value",
 			},
 			true,
@@ -130,7 +131,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 			types.MapValueMust(types.StringType, map[string]attr.Value{
 				"key": types.StringValue("value"),
 			}),
-			map[string]interface{}{
+			map[string]any{
 				"key":  "value",
 				"key2": nil,
 			},
@@ -145,7 +146,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 				"key":  types.StringValue("value"),
 				"key2": types.StringValue("value2"),
 			}),
-			map[string]interface{}{
+			map[string]any{
 				"key":  "value",
 				"key2": "value2",
 			},
@@ -158,7 +159,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 				"key2": types.StringValue("value2"),
 			}),
 			types.MapValueMust(types.StringType, map[string]attr.Value{}),
-			map[string]interface{}{
+			map[string]any{
 				"key":  nil,
 				"key2": nil,
 			},
@@ -171,7 +172,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 				"key2": types.StringValue("value2"),
 			}),
 			types.MapNull(types.StringType),
-			map[string]interface{}{
+			map[string]any{
 				"key":  nil,
 				"key2": nil,
 			},
@@ -184,7 +185,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 				"key":  types.StringValue("value"),
 				"key2": types.StringValue("value2"),
 			}),
-			map[string]interface{}{
+			map[string]any{
 				"key":  "value",
 				"key2": "value2",
 			},
@@ -197,7 +198,7 @@ func TestToJSONMapUpdatePayload(t *testing.T) {
 				"key":  types.StringValue("value"),
 				"key2": types.StringValue("value2"),
 			}),
-			map[string]interface{}{
+			map[string]any{
 				"key":  "value",
 				"key2": "value2",
 			},
@@ -389,6 +390,123 @@ func TestParseEphemeralProviderData(t *testing.T) {
 			}
 			if !reflect.DeepEqual(actual, tt.want.providerData) {
 				t.Errorf("ParseProviderData() got = %v, want %v", actual, tt.want)
+			}
+		})
+	}
+}
+
+func TestStringSetToSlice(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		in      basetypes.SetValue
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "unknown",
+			in:   basetypes.NewSetUnknown(types.StringType),
+			want: nil,
+		},
+		{
+			name: "null",
+			in:   basetypes.NewSetNull(types.StringType),
+			want: nil,
+		},
+		{
+			name:    "invalid type",
+			in:      basetypes.NewSetValueMust(types.Int64Type, []attr.Value{types.Int64Value(123)}),
+			wantErr: true,
+		},
+		{
+			name: "some values, sorting",
+			in: basetypes.NewSetValueMust(
+				types.StringType,
+				[]attr.Value{
+					types.StringValue("xyz"),
+					types.StringValue("abc"),
+				},
+			),
+			want: []string{
+				"abc",
+				"xyz",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := StringSetToSlice(tt.in)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if d := cmp.Diff(got, tt.want); d != "" {
+				t.Fatalf("no match, diff: %s", d)
+			}
+		})
+	}
+}
+
+func TestStringListToSlice(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		in      basetypes.ListValue
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "unknown",
+			in:   basetypes.NewListUnknown(types.StringType),
+			want: nil,
+		},
+		{
+			name: "null",
+			in:   basetypes.NewListNull(types.StringType),
+			want: nil,
+		},
+		{
+			name: "empty list",
+			in:   basetypes.NewListValueMust(types.StringType, []attr.Value{}),
+			want: []string{},
+		},
+		{
+			name:    "invalid type",
+			in:      basetypes.NewListValueMust(types.Int64Type, []attr.Value{types.Int64Value(123)}),
+			wantErr: true,
+		},
+		{
+			name: "some values",
+			in: basetypes.NewListValueMust(
+				types.StringType,
+				[]attr.Value{
+					types.StringValue("abc"),
+					types.StringValue("xyz"),
+				},
+			),
+			want: []string{
+				"abc",
+				"xyz",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := StringListToSlice(tt.in)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if d := cmp.Diff(got, tt.want); d != "" {
+				t.Fatalf("no match, diff: %s", d)
 			}
 		})
 	}

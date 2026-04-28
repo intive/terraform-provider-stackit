@@ -1,22 +1,19 @@
 package secretsmanager_test
 
 import (
-	"context"
 	_ "embed"
 	"fmt"
 	"maps"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	core_config "github.com/stackitcloud/stackit-sdk-go/core/config"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/secretsmanager"
-	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
+
+	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/testdestroy"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/testutil"
 )
 
@@ -36,12 +33,14 @@ var testConfigVarsMin = config.Variables{
 }
 
 var testConfigVarsMax = config.Variables{
-	"project_id":       config.StringVariable(testutil.ProjectId),
-	"instance_name":    config.StringVariable("tf-acc-" + acctest.RandStringFromCharSet(8, acctest.CharSetAlpha)),
-	"user_description": config.StringVariable("tf-acc-" + acctest.RandStringFromCharSet(8, acctest.CharSetAlpha)),
-	"acl1":             config.StringVariable("10.100.0.0/24"),
-	"acl2":             config.StringVariable("10.100.1.0/24"),
-	"write_enabled":    config.BoolVariable(true),
+	"project_id":           config.StringVariable(testutil.ProjectId),
+	"instance_name":        config.StringVariable("tf-acc-" + acctest.RandStringFromCharSet(8, acctest.CharSetAlpha)),
+	"user_description":     config.StringVariable("tf-acc-" + acctest.RandStringFromCharSet(8, acctest.CharSetAlpha)),
+	"acl1":                 config.StringVariable("10.100.0.0/24"),
+	"acl2":                 config.StringVariable("10.100.1.0/24"),
+	"write_enabled":        config.BoolVariable(true),
+	"service_account_mail": config.StringVariable(testutil.TestProjectServiceAccountEmail),
+	"use_kms_key":          config.BoolVariable(true),
 }
 
 func configVarsInvalid(vars config.Variables) config.Variables {
@@ -52,13 +51,16 @@ func configVarsInvalid(vars config.Variables) config.Variables {
 
 func configVarsMinUpdated() config.Variables {
 	tempConfig := maps.Clone(testConfigVarsMin)
+	tempConfig["instance_name"] = config.StringVariable(testutil.ConvertConfigVariable(tempConfig["instance_name"]) + "-updated")
 	tempConfig["write_enabled"] = config.BoolVariable(false)
 	return tempConfig
 }
 
 func configVarsMaxUpdated() config.Variables {
 	tempConfig := maps.Clone(testConfigVarsMax)
+	tempConfig["instance_name"] = config.StringVariable(testutil.ConvertConfigVariable(tempConfig["instance_name"]) + "-updated")
 	tempConfig["write_enabled"] = config.BoolVariable(false)
+	tempConfig["use_kms_key"] = config.BoolVariable(false)
 	tempConfig["acl2"] = config.StringVariable("10.100.2.0/24")
 	return tempConfig
 }
@@ -66,11 +68,11 @@ func configVarsMaxUpdated() config.Variables {
 func TestAccSecretsManagerMin(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testutil.TestAccProtoV6ProviderFactories,
-		CheckDestroy:             testAccCheckSecretsManagerDestroy,
+		CheckDestroy:             testdestroy.AccTestCheckDestroy,
 		Steps: []resource.TestStep{
 			// Creation fail
 			{
-				Config:          testutil.SecretsManagerProviderConfig() + "\n" + resourceMinConfig,
+				Config:          testutil.NewConfigBuilder().BuildProviderConfig() + "\n" + resourceMinConfig,
 				ConfigVariables: configVarsInvalid(testConfigVarsMin),
 				ExpectError:     regexp.MustCompile(`input variable "instance_name" is not set,`),
 			},
@@ -183,6 +185,12 @@ func TestAccSecretsManagerMin(t *testing.T) {
 			{
 				Config:          resourceMinConfig,
 				ConfigVariables: configVarsMinUpdated(),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("stackit_secretsmanager_user.user", plancheck.ResourceActionUpdate),
+						plancheck.ExpectResourceAction("stackit_secretsmanager_instance.instance", plancheck.ResourceActionUpdate),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// Instance
 					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance", "project_id", testutil.ConvertConfigVariable(configVarsMinUpdated()["project_id"])),
@@ -215,11 +223,11 @@ func TestAccSecretsManagerMin(t *testing.T) {
 func TestAccSecretsManagerMax(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testutil.TestAccProtoV6ProviderFactories,
-		CheckDestroy:             testAccCheckSecretsManagerDestroy,
+		CheckDestroy:             testdestroy.AccTestCheckDestroy,
 		Steps: []resource.TestStep{
 			// Creation fail
 			{
-				Config:          testutil.SecretsManagerProviderConfig() + "\n" + resourceMaxConfig,
+				Config:          testutil.NewConfigBuilder().BuildProviderConfig() + "\n" + resourceMaxConfig,
 				ConfigVariables: configVarsInvalid(testConfigVarsMax),
 				ExpectError:     regexp.MustCompile(`input variable "instance_name" is not set,`),
 			},
@@ -250,6 +258,24 @@ func TestAccSecretsManagerMax(t *testing.T) {
 					resource.TestCheckResourceAttr("stackit_secretsmanager_user.user", "write_enabled", testutil.ConvertConfigVariable(testConfigVarsMax["write_enabled"])),
 					resource.TestCheckResourceAttrSet("stackit_secretsmanager_user.user", "username"),
 					resource.TestCheckResourceAttrSet("stackit_secretsmanager_user.user", "password"),
+
+					// Instance with kms key
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "project_id", testutil.ConvertConfigVariable(testConfigVarsMax["project_id"])),
+					resource.TestCheckResourceAttrSet("stackit_secretsmanager_instance.instance_with_key", "instance_id"),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "name", testutil.ConvertConfigVariable(testConfigVarsMax["instance_name"])),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "acls.#", "2"),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "acls.0", testutil.ConvertConfigVariable(testConfigVarsMax["acl1"])),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "acls.1", testutil.ConvertConfigVariable(testConfigVarsMax["acl2"])),
+					resource.TestCheckResourceAttrPair(
+						"stackit_secretsmanager_instance.instance_with_key", "kms_key.key_id",
+						"stackit_kms_key.key", "key_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_secretsmanager_instance.instance_with_key", "kms_key.key_ring_id",
+						"stackit_kms_keyring.keyring", "keyring_id",
+					),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "kms_key.key_version", "1"),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "kms_key.service_account_email", testutil.ConvertConfigVariable(testConfigVarsMax["service_account_mail"])),
 				),
 			},
 			// Data source
@@ -287,6 +313,24 @@ func TestAccSecretsManagerMax(t *testing.T) {
 						"stackit_secretsmanager_user.user", "username",
 						"data.stackit_secretsmanager_user.user", "username",
 					),
+
+					// Instance with kms key
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "project_id", testutil.ConvertConfigVariable(testConfigVarsMax["project_id"])),
+					resource.TestCheckResourceAttrSet("data.stackit_secretsmanager_instance.instance_with_key", "instance_id"),
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "name", testutil.ConvertConfigVariable(testConfigVarsMax["instance_name"])),
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "acls.#", "2"),
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "acls.0", testutil.ConvertConfigVariable(testConfigVarsMax["acl1"])),
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "acls.1", testutil.ConvertConfigVariable(testConfigVarsMax["acl2"])),
+					resource.TestCheckResourceAttrPair(
+						"data.stackit_secretsmanager_instance.instance_with_key", "kms_key.key_id",
+						"stackit_kms_key.key", "key_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"data.stackit_secretsmanager_instance.instance_with_key", "kms_key.key_ring_id",
+						"stackit_kms_keyring.keyring", "keyring_id",
+					),
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "kms_key.key_version", "1"),
+					resource.TestCheckResourceAttr("data.stackit_secretsmanager_instance.instance_with_key", "kms_key.service_account_email", testutil.ConvertConfigVariable(testConfigVarsMax["service_account_mail"])),
 				),
 			},
 			// Import
@@ -297,6 +341,24 @@ func TestAccSecretsManagerMax(t *testing.T) {
 					r, ok := s.RootModule().Resources["stackit_secretsmanager_instance.instance"]
 					if !ok {
 						return "", fmt.Errorf("couldn't find resource stackit_secretsmanager_instance.instance")
+					}
+					instanceId, ok := r.Primary.Attributes["instance_id"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find attribute instance_id")
+					}
+					return fmt.Sprintf("%s,%s", testutil.ProjectId, instanceId), nil
+				},
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Import
+			{
+				ConfigVariables: testConfigVarsMax,
+				ResourceName:    "stackit_secretsmanager_instance.instance_with_key",
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					r, ok := s.RootModule().Resources["stackit_secretsmanager_instance.instance_with_key"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find resource stackit_secretsmanager_instance.instance_with_key")
 					}
 					instanceId, ok := r.Primary.Attributes["instance_id"]
 					if !ok {
@@ -336,6 +398,13 @@ func TestAccSecretsManagerMax(t *testing.T) {
 			{
 				Config:          resourceMaxConfig,
 				ConfigVariables: configVarsMaxUpdated(),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("stackit_secretsmanager_user.user", plancheck.ResourceActionUpdate),
+						plancheck.ExpectResourceAction("stackit_secretsmanager_instance.instance", plancheck.ResourceActionUpdate),
+						plancheck.ExpectResourceAction("stackit_secretsmanager_instance.instance_with_key", plancheck.ResourceActionUpdate),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// Instance
 					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance", "project_id", testutil.ConvertConfigVariable(configVarsMaxUpdated()["project_id"])),
@@ -359,56 +428,18 @@ func TestAccSecretsManagerMax(t *testing.T) {
 					resource.TestCheckResourceAttr("stackit_secretsmanager_user.user", "write_enabled", testutil.ConvertConfigVariable(configVarsMaxUpdated()["write_enabled"])),
 					resource.TestCheckResourceAttrSet("stackit_secretsmanager_user.user", "username"),
 					resource.TestCheckResourceAttrSet("stackit_secretsmanager_user.user", "password"),
+
+					// Instance with kms key
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "project_id", testutil.ConvertConfigVariable(configVarsMaxUpdated()["project_id"])),
+					resource.TestCheckResourceAttrSet("stackit_secretsmanager_instance.instance_with_key", "instance_id"),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "name", testutil.ConvertConfigVariable(configVarsMaxUpdated()["instance_name"])),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "acls.#", "2"),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "acls.0", testutil.ConvertConfigVariable(configVarsMaxUpdated()["acl1"])),
+					resource.TestCheckResourceAttr("stackit_secretsmanager_instance.instance_with_key", "acls.1", testutil.ConvertConfigVariable(configVarsMaxUpdated()["acl2"])),
+					resource.TestCheckNoResourceAttr("stackit_secretsmanager_instance.instance_with_key", "kms_key"),
 				),
 			},
 			// Deletion is done by the framework implicitly
 		},
 	})
-}
-
-func testAccCheckSecretsManagerDestroy(s *terraform.State) error {
-	ctx := context.Background()
-	var client *secretsmanager.APIClient
-	var err error
-	if testutil.SecretsManagerCustomEndpoint == "" {
-		client, err = secretsmanager.NewAPIClient(
-			core_config.WithRegion("eu01"),
-		)
-	} else {
-		client, err = secretsmanager.NewAPIClient(
-			core_config.WithEndpoint(testutil.SecretsManagerCustomEndpoint),
-		)
-	}
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
-	}
-
-	instancesToDestroy := []string{}
-	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "stackit_secretsmanager_instance" {
-			continue
-		}
-		// instance terraform ID: "[project_id],[instance_id]"
-		instanceId := strings.Split(rs.Primary.ID, core.Separator)[1]
-		instancesToDestroy = append(instancesToDestroy, instanceId)
-	}
-
-	instancesResp, err := client.ListInstances(ctx, testutil.ProjectId).Execute()
-	if err != nil {
-		return fmt.Errorf("getting instancesResp: %w", err)
-	}
-
-	instances := *instancesResp.Instances
-	for i := range instances {
-		if instances[i].Id == nil {
-			continue
-		}
-		if utils.Contains(instancesToDestroy, *instances[i].Id) {
-			err := client.DeleteInstanceExecute(ctx, testutil.ProjectId, *instances[i].Id)
-			if err != nil {
-				return fmt.Errorf("destroying instance %s during CheckDestroy: %w", *instances[i].Id, err)
-			}
-		}
-	}
-	return nil
 }

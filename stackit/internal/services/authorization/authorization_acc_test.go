@@ -16,11 +16,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	stackitSdkConfig "github.com/stackitcloud/stackit-sdk-go/core/config"
 	"github.com/stackitcloud/stackit-sdk-go/core/utils"
 	"github.com/stackitcloud/stackit-sdk-go/services/authorization"
 	"github.com/stackitcloud/stackit-sdk-go/services/resourcemanager"
 	"github.com/stackitcloud/stackit-sdk-go/services/resourcemanager/wait"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/testutil"
 )
 
@@ -43,8 +43,14 @@ var (
 	//go:embed testdata/resource-org-role-assignment-duplicate.tf
 	resourceOrgRoleAssignmentDuplicate string
 
-	//go:embed testdata/resource-custom-role.tf
-	resourceCustomRole string
+	//go:embed testdata/resource-project-custom-role.tf
+	resourceProjectCustomRole string
+
+	//go:embed testdata/resource-folder-custom-role.tf
+	resourceFolderCustomRole string
+
+	//go:embed testdata/resource-organization-custom-role.tf
+	resourceOrganizationCustomRole string
 
 	//go:embed testdata/resource-service-account-role-assignment.tf
 	resourceServiceAccountRoleAssignment string
@@ -54,8 +60,9 @@ var (
 )
 
 var (
-	testProjectName = fmt.Sprintf("proj-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlphaNum))
-	testFolderName  = fmt.Sprintf("folder-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlphaNum))
+	testProjectName          = fmt.Sprintf("proj-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlphaNum))
+	testFolderName           = fmt.Sprintf("folder-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlphaNum))
+	testCustomRoleFolderName = fmt.Sprintf("folder-custom-role-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlphaNum))
 )
 
 var testConfigVarsProjectRoleAssignment = config.Variables{
@@ -80,22 +87,50 @@ var testConfigVarsOrgRoleAssignment = config.Variables{
 	"subject":             config.StringVariable(testutil.TestProjectServiceAccountEmail),
 }
 
-var testConfigVarsCustomRole = config.Variables{
-	"project_id":           config.StringVariable(testutil.ProjectId),
-	"test_service_account": config.StringVariable(testutil.TestProjectServiceAccountEmail),
-	"organization_id":      config.StringVariable(testutil.OrganizationId),
-	"role_name":            config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
-	"role_description":     config.StringVariable("Some description"),
-	"role_permissions_0":   config.StringVariable("iam.role.list"),
+var testConfigVarsProjectCustomRole = config.Variables{
+	"project_id":         config.StringVariable(testutil.ProjectId),
+	"role_name":          config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
+	"role_description":   config.StringVariable("Some description"),
+	"role_permissions_0": config.StringVariable("iam.role.list"),
 }
 
-var testConfigVarsCustomRoleUpdated = config.Variables{
-	"project_id":           config.StringVariable(testutil.ProjectId),
-	"test_service_account": config.StringVariable(testutil.TestProjectServiceAccountEmail),
-	"organization_id":      config.StringVariable(testutil.OrganizationId),
-	"role_name":            config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
-	"role_description":     config.StringVariable("Updated description"),
-	"role_permissions_0":   config.StringVariable("iam.role.edit"),
+var testConfigVarsProjectCustomRoleUpdated = config.Variables{
+	"project_id":         config.StringVariable(testutil.ProjectId),
+	"role_name":          config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
+	"role_description":   config.StringVariable("Updated description"),
+	"role_permissions_0": config.StringVariable("iam.role.edit"),
+}
+
+var testConfigVarsFolderCustomRole = config.Variables{
+	"folder_name":         config.StringVariable(testCustomRoleFolderName),
+	"owner_email":         config.StringVariable(testutil.TestProjectServiceAccountEmail),
+	"parent_container_id": config.StringVariable(testutil.OrganizationId),
+	"role_name":           config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
+	"role_description":    config.StringVariable("Some description"),
+	"role_permissions_0":  config.StringVariable("iam.role.list"),
+}
+
+var testConfigVarsFolderCustomRoleUpdated = config.Variables{
+	"folder_name":         config.StringVariable(testCustomRoleFolderName),
+	"owner_email":         config.StringVariable(testutil.TestProjectServiceAccountEmail),
+	"parent_container_id": config.StringVariable(testutil.OrganizationId),
+	"role_name":           config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
+	"role_description":    config.StringVariable("Updated description"),
+	"role_permissions_0":  config.StringVariable("iam.role.edit"),
+}
+
+var testConfigVarsOrganizationCustomRole = config.Variables{
+	"organization_id":    config.StringVariable(testutil.OrganizationId),
+	"role_name":          config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
+	"role_description":   config.StringVariable("Some description"),
+	"role_permissions_0": config.StringVariable("iam.role.list"),
+}
+
+var testConfigVarsOrganizationCustomRoleUpdated = config.Variables{
+	"organization_id":    config.StringVariable(testutil.OrganizationId),
+	"role_name":          config.StringVariable(fmt.Sprintf("tf-acc-%s", acctest.RandStringFromCharSet(5, acctest.CharSetAlpha))),
+	"role_description":   config.StringVariable("Updated description"),
+	"role_permissions_0": config.StringVariable("iam.role.edit"),
 }
 
 var testConfigVarsServiceAccountRoleAssignment = config.Variables{
@@ -147,7 +182,7 @@ func TestAccProjectRoleAssignmentResource(t *testing.T) {
 			// Creation
 			{
 				ConfigVariables: testConfigVarsProjectRoleAssignment,
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceProjectRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceProjectRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("stackit_resourcemanager_project.project", "name", testutil.ConvertConfigVariable(testConfigVarsProjectRoleAssignment["name"])),
 					resource.TestCheckResourceAttr("stackit_resourcemanager_project.project", "owner_email", testutil.ConvertConfigVariable(testConfigVarsProjectRoleAssignment["owner_email"])),
@@ -194,7 +229,7 @@ func TestAccProjectRoleAssignmentResource(t *testing.T) {
 			// Update
 			{
 				ConfigVariables: testConfigVarsProjectRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceProjectRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceProjectRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("stackit_resourcemanager_project.project", "name", testutil.ConvertConfigVariable(testConfigVarsProjectRoleAssignmentUpdated()["name"])),
 					resource.TestCheckResourceAttr("stackit_resourcemanager_project.project", "owner_email", testutil.ConvertConfigVariable(testConfigVarsProjectRoleAssignmentUpdated()["owner_email"])),
@@ -214,7 +249,7 @@ func TestAccProjectRoleAssignmentResource(t *testing.T) {
 			// Duplicate assignment should fail
 			{
 				ConfigVariables: testConfigVarsProjectRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceProjectRoleAssignmentDuplicate,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceProjectRoleAssignmentDuplicate,
 				ExpectError:     regexp.MustCompile(`Error while checking for duplicate role assignments`),
 			},
 
@@ -233,7 +268,7 @@ func TestAccFolderRoleAssignmentResource(t *testing.T) {
 			// Creation
 			{
 				ConfigVariables: testConfigVarsFolderRoleAssignment,
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceFolderRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceFolderRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("stackit_resourcemanager_folder.folder", "name", testutil.ConvertConfigVariable(testConfigVarsFolderRoleAssignment["name"])),
 					resource.TestCheckResourceAttr("stackit_resourcemanager_folder.folder", "owner_email", testutil.ConvertConfigVariable(testConfigVarsFolderRoleAssignment["owner_email"])),
@@ -280,7 +315,7 @@ func TestAccFolderRoleAssignmentResource(t *testing.T) {
 			// Update
 			{
 				ConfigVariables: testConfigVarsFolderRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceFolderRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceFolderRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("stackit_resourcemanager_folder.folder", "name", testutil.ConvertConfigVariable(testConfigVarsFolderRoleAssignmentUpdated()["name"])),
 					resource.TestCheckResourceAttr("stackit_resourcemanager_folder.folder", "owner_email", testutil.ConvertConfigVariable(testConfigVarsFolderRoleAssignmentUpdated()["owner_email"])),
@@ -300,7 +335,7 @@ func TestAccFolderRoleAssignmentResource(t *testing.T) {
 			// Duplicate assignment should fail
 			{
 				ConfigVariables: testConfigVarsFolderRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceFolderRoleAssignmentDuplicate,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceFolderRoleAssignmentDuplicate,
 				ExpectError:     regexp.MustCompile(`Error while checking for duplicate role assignments`),
 			},
 			// Deletion is done by the framework implicitly
@@ -318,7 +353,7 @@ func TestAccOrgRoleAssignmentResource(t *testing.T) {
 			// Creation
 			{
 				ConfigVariables: testConfigVarsOrgRoleAssignment,
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceOrgRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceOrgRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("stackit_authorization_organization_role_assignment.ora", "resource_id"),
 					resource.TestCheckResourceAttrSet("stackit_authorization_organization_role_assignment.ora", "id"),
@@ -356,7 +391,7 @@ func TestAccOrgRoleAssignmentResource(t *testing.T) {
 			// Update
 			{
 				ConfigVariables: testConfigVarsOrgRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceOrgRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceOrgRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("stackit_authorization_organization_role_assignment.ora", "resource_id"),
 					resource.TestCheckResourceAttrSet("stackit_authorization_organization_role_assignment.ora", "id"),
@@ -367,7 +402,7 @@ func TestAccOrgRoleAssignmentResource(t *testing.T) {
 			// Duplicate assignment should fail
 			{
 				ConfigVariables: testConfigVarsOrgRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceOrgRoleAssignmentDuplicate,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceOrgRoleAssignmentDuplicate,
 				ExpectError:     regexp.MustCompile(`Error while checking for duplicate role assignments`),
 			},
 			// Deletion is done by the framework implicitly
@@ -384,7 +419,7 @@ func TestAccServiceAccountRoleAssignmentResource(t *testing.T) {
 			// Creation
 			{
 				ConfigVariables: testConfigVarsServiceAccountRoleAssignment,
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceServiceAccountRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceServiceAccountRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("stackit_authorization_service_account_role_assignment.sa", "resource_id"),
 					resource.TestCheckResourceAttrSet("stackit_authorization_service_account_role_assignment.sa", "id"),
@@ -412,7 +447,7 @@ func TestAccServiceAccountRoleAssignmentResource(t *testing.T) {
 			// Update
 			{
 				ConfigVariables: testConfigVarsServiceAccountRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceServiceAccountRoleAssignment,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceServiceAccountRoleAssignment,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("stackit_authorization_service_account_role_assignment.sa", "resource_id"),
 					resource.TestCheckResourceAttrSet("stackit_authorization_service_account_role_assignment.sa", "id"),
@@ -426,7 +461,7 @@ func TestAccServiceAccountRoleAssignmentResource(t *testing.T) {
 			// Duplicate assignment should fail
 			{
 				ConfigVariables: testConfigVarsServiceAccountRoleAssignmentUpdated(),
-				Config:          testutil.AuthorizationProviderConfig() + "\n" + resourceServiceAccountRoleAssignmentDuplicate,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + "\n" + resourceServiceAccountRoleAssignmentDuplicate,
 				ExpectError:     regexp.MustCompile(`Error while checking for duplicate role assignments`),
 			},
 			// Deletion is done by the framework implicitly
@@ -435,67 +470,71 @@ func TestAccServiceAccountRoleAssignmentResource(t *testing.T) {
 }
 
 func TestAccProjectCustomRoleResource(t *testing.T) {
-	t.Log("Testing org role assignment resource")
+	t.Log("Testing project custom role resource")
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testutil.TestAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				ConfigVariables: testConfigVarsCustomRole,
-				Config:          testutil.AuthorizationProviderConfig() + resourceCustomRole,
+				ConfigVariables: testConfigVarsProjectCustomRole,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + resourceProjectCustomRole,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsCustomRole["project_id"])),
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsCustomRole["role_name"])),
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsCustomRole["role_description"])),
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "permissions.#", "1"),
-					resource.TestCheckTypeSetElemAttr("stackit_authorization_project_custom_role.custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsCustomRole["role_permissions_0"])),
-					resource.TestCheckResourceAttrSet("stackit_authorization_project_custom_role.custom_role", "role_id"),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRole["project_id"])),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRole["role_name"])),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRole["role_description"])),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "permissions.#", "1"),
+					resource.TestCheckTypeSetElemAttr("stackit_authorization_project_custom_role.project_custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRole["role_permissions_0"])),
+					resource.TestCheckResourceAttrSet("stackit_authorization_project_custom_role.project_custom_role", "role_id"),
 				),
 			},
 			// Data source
 			{
-				ConfigVariables: testConfigVarsCustomRole,
+				ConfigVariables: testConfigVarsProjectCustomRole,
 				Config: fmt.Sprintf(`
                 %s
 
-                data "stackit_authorization_project_custom_role" "custom_role" {
-                   resource_id  = stackit_authorization_project_custom_role.custom_role.resource_id
-                   role_id  = stackit_authorization_project_custom_role.custom_role.role_id
+                data "stackit_authorization_project_custom_role" "project_custom_role" {
+                   resource_id  = stackit_authorization_project_custom_role.project_custom_role.resource_id
+                   role_id  = stackit_authorization_project_custom_role.project_custom_role.role_id
                 }
                 `,
-					testutil.AuthorizationProviderConfig()+resourceCustomRole,
+					testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig()+resourceProjectCustomRole,
 				),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.stackit_authorization_project_custom_role.custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsCustomRole["project_id"])),
+					resource.TestCheckResourceAttr("data.stackit_authorization_project_custom_role.project_custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRole["project_id"])),
 					resource.TestCheckResourceAttrPair(
-						"stackit_authorization_project_custom_role.custom_role", "resource_id",
-						"data.stackit_authorization_project_custom_role.custom_role", "resource_id",
+						"stackit_authorization_project_custom_role.project_custom_role", "resource_id",
+						"data.stackit_authorization_project_custom_role.project_custom_role", "resource_id",
 					),
 					resource.TestCheckResourceAttrPair(
-						"stackit_authorization_project_custom_role.custom_role", "role_id",
-						"data.stackit_authorization_project_custom_role.custom_role", "role_id",
+						"stackit_authorization_project_custom_role.project_custom_role", "role_id",
+						"data.stackit_authorization_project_custom_role.project_custom_role", "role_id",
 					),
 					resource.TestCheckResourceAttrPair(
-						"stackit_authorization_project_custom_role.custom_role", "name",
-						"data.stackit_authorization_project_custom_role.custom_role", "name",
+						"stackit_authorization_project_custom_role.project_custom_role", "name",
+						"data.stackit_authorization_project_custom_role.project_custom_role", "name",
 					),
 					resource.TestCheckResourceAttrPair(
-						"stackit_authorization_project_custom_role.custom_role", "description",
-						"data.stackit_authorization_project_custom_role.custom_role", "description",
+						"stackit_authorization_project_custom_role.project_custom_role", "description",
+						"data.stackit_authorization_project_custom_role.project_custom_role", "description",
 					),
 					resource.TestCheckResourceAttrPair(
-						"stackit_authorization_project_custom_role.custom_role", "permissions",
-						"data.stackit_authorization_project_custom_role.custom_role", "permissions",
+						"stackit_authorization_project_custom_role.project_custom_role", "permissions.#",
+						"data.stackit_authorization_project_custom_role.project_custom_role", "permissions.#",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_project_custom_role.project_custom_role", "permissions.*",
+						"data.stackit_authorization_project_custom_role.project_custom_role", "permissions.*",
 					),
 				),
 			},
 			// Import
 			{
-				ConfigVariables: testConfigVarsCustomRole,
-				ResourceName:    "stackit_authorization_project_custom_role.custom_role",
+				ConfigVariables: testConfigVarsProjectCustomRole,
+				ResourceName:    "stackit_authorization_project_custom_role.project_custom_role",
 				ImportStateIdFunc: func(s *terraform.State) (string, error) {
-					r, ok := s.RootModule().Resources["stackit_authorization_project_custom_role.custom_role"]
+					r, ok := s.RootModule().Resources["stackit_authorization_project_custom_role.project_custom_role"]
 					if !ok {
-						return "", fmt.Errorf("couldn't find resource stackit_authorization_project_custom_role.custom_role")
+						return "", fmt.Errorf("couldn't find resource stackit_authorization_project_custom_role.project_custom_role")
 					}
 					roleId, ok := r.Primary.Attributes["role_id"]
 					if !ok {
@@ -509,15 +548,206 @@ func TestAccProjectCustomRoleResource(t *testing.T) {
 			},
 			// Update
 			{
-				ConfigVariables: testConfigVarsCustomRoleUpdated,
-				Config:          testutil.AuthorizationProviderConfig() + resourceCustomRole,
+				ConfigVariables: testConfigVarsProjectCustomRoleUpdated,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + resourceProjectCustomRole,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsCustomRoleUpdated["project_id"])),
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsCustomRoleUpdated["role_name"])),
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsCustomRoleUpdated["role_description"])),
-					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.custom_role", "permissions.#", "1"),
-					resource.TestCheckTypeSetElemAttr("stackit_authorization_project_custom_role.custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsCustomRoleUpdated["role_permissions_0"])),
-					resource.TestCheckResourceAttrSet("stackit_authorization_project_custom_role.custom_role", "role_id"),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRoleUpdated["project_id"])),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRoleUpdated["role_name"])),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRoleUpdated["role_description"])),
+					resource.TestCheckResourceAttr("stackit_authorization_project_custom_role.project_custom_role", "permissions.#", "1"),
+					resource.TestCheckTypeSetElemAttr("stackit_authorization_project_custom_role.project_custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsProjectCustomRoleUpdated["role_permissions_0"])),
+					resource.TestCheckResourceAttrSet("stackit_authorization_project_custom_role.project_custom_role", "role_id"),
+				),
+			},
+			// Deletion is done by the framework implicitly
+		},
+	})
+}
+
+func TestAccFolderCustomRoleResource(t *testing.T) {
+	t.Log("Testing folder custom role resource")
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				ConfigVariables: testConfigVarsFolderCustomRole,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + resourceFolderCustomRole,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("stackit_authorization_folder_custom_role.folder_custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsFolderCustomRole["role_name"])),
+					resource.TestCheckResourceAttr("stackit_authorization_folder_custom_role.folder_custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsFolderCustomRole["role_description"])),
+					resource.TestCheckResourceAttr("stackit_authorization_folder_custom_role.folder_custom_role", "permissions.#", "1"),
+					resource.TestCheckTypeSetElemAttr("stackit_authorization_folder_custom_role.folder_custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsFolderCustomRole["role_permissions_0"])),
+					resource.TestCheckResourceAttrSet("stackit_authorization_folder_custom_role.folder_custom_role", "role_id"),
+				),
+			},
+			// Data source
+			{
+				ConfigVariables: testConfigVarsFolderCustomRole,
+				Config: fmt.Sprintf(`
+                %s
+
+                data "stackit_authorization_folder_custom_role" "folder_custom_role" {
+                   resource_id  = stackit_authorization_folder_custom_role.folder_custom_role.resource_id
+                   role_id  = stackit_authorization_folder_custom_role.folder_custom_role.role_id
+                }
+                `,
+					testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig()+resourceFolderCustomRole,
+				),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_folder_custom_role.folder_custom_role", "resource_id",
+						"data.stackit_authorization_folder_custom_role.folder_custom_role", "resource_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_folder_custom_role.folder_custom_role", "role_id",
+						"data.stackit_authorization_folder_custom_role.folder_custom_role", "role_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_folder_custom_role.folder_custom_role", "name",
+						"data.stackit_authorization_folder_custom_role.folder_custom_role", "name",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_folder_custom_role.folder_custom_role", "description",
+						"data.stackit_authorization_folder_custom_role.folder_custom_role", "description",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_folder_custom_role.folder_custom_role", "permissions.#",
+						"data.stackit_authorization_folder_custom_role.folder_custom_role", "permissions.#",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_folder_custom_role.folder_custom_role", "permissions.*",
+						"data.stackit_authorization_folder_custom_role.folder_custom_role", "permissions.*",
+					),
+				),
+			},
+			// Import
+			{
+				ConfigVariables: testConfigVarsFolderCustomRole,
+				ResourceName:    "stackit_authorization_folder_custom_role.folder_custom_role",
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					r, ok := s.RootModule().Resources["stackit_authorization_folder_custom_role.folder_custom_role"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find resource stackit_authorization_folder_custom_role.folder_custom_role")
+					}
+					roleId, ok := r.Primary.Attributes["role_id"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find attribute role_id")
+					}
+					folderId, ok := r.Primary.Attributes["resource_id"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find attribute resource_id")
+					}
+
+					return fmt.Sprintf("%s,%s", folderId, roleId), nil
+				},
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Update
+			{
+				ConfigVariables: testConfigVarsFolderCustomRoleUpdated,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + resourceFolderCustomRole,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("stackit_authorization_folder_custom_role.folder_custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsFolderCustomRoleUpdated["role_name"])),
+					resource.TestCheckResourceAttr("stackit_authorization_folder_custom_role.folder_custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsFolderCustomRoleUpdated["role_description"])),
+					resource.TestCheckResourceAttr("stackit_authorization_folder_custom_role.folder_custom_role", "permissions.#", "1"),
+					resource.TestCheckTypeSetElemAttr("stackit_authorization_folder_custom_role.folder_custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsFolderCustomRoleUpdated["role_permissions_0"])),
+					resource.TestCheckResourceAttrSet("stackit_authorization_folder_custom_role.folder_custom_role", "role_id"),
+				),
+			},
+			// Deletion is done by the framework implicitly
+		},
+	})
+}
+
+func TestAccOrganizationCustomRoleResource(t *testing.T) {
+	t.Log("Testing org custom role resource")
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				ConfigVariables: testConfigVarsOrganizationCustomRole,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + resourceOrganizationCustomRole,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRole["organization_id"])),
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRole["role_name"])),
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRole["role_description"])),
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "permissions.#", "1"),
+					resource.TestCheckTypeSetElemAttr("stackit_authorization_organization_custom_role.organization_custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRole["role_permissions_0"])),
+					resource.TestCheckResourceAttrSet("stackit_authorization_organization_custom_role.organization_custom_role", "role_id"),
+				),
+			},
+			// Data source
+			{
+				ConfigVariables: testConfigVarsOrganizationCustomRole,
+				Config: fmt.Sprintf(`
+                %s
+
+                data "stackit_authorization_organization_custom_role" "organization_custom_role" {
+                   resource_id  = stackit_authorization_organization_custom_role.organization_custom_role.resource_id
+                   role_id  = stackit_authorization_organization_custom_role.organization_custom_role.role_id
+                }
+                `,
+					testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig()+resourceOrganizationCustomRole,
+				),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.stackit_authorization_organization_custom_role.organization_custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRole["organization_id"])),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_organization_custom_role.organization_custom_role", "resource_id",
+						"data.stackit_authorization_organization_custom_role.organization_custom_role", "resource_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_organization_custom_role.organization_custom_role", "role_id",
+						"data.stackit_authorization_organization_custom_role.organization_custom_role", "role_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_organization_custom_role.organization_custom_role", "name",
+						"data.stackit_authorization_organization_custom_role.organization_custom_role", "name",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_organization_custom_role.organization_custom_role", "description",
+						"data.stackit_authorization_organization_custom_role.organization_custom_role", "description",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_organization_custom_role.organization_custom_role", "permissions.#",
+						"data.stackit_authorization_organization_custom_role.organization_custom_role", "permissions.#",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_authorization_organization_custom_role.organization_custom_role", "permissions.*",
+						"data.stackit_authorization_organization_custom_role.organization_custom_role", "permissions.*",
+					),
+				),
+			},
+			// Import
+			{
+				ConfigVariables: testConfigVarsOrganizationCustomRole,
+				ResourceName:    "stackit_authorization_organization_custom_role.organization_custom_role",
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					r, ok := s.RootModule().Resources["stackit_authorization_organization_custom_role.organization_custom_role"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find resource stackit_authorization_organization_custom_role.organization_custom_role")
+					}
+					roleId, ok := r.Primary.Attributes["role_id"]
+					if !ok {
+						return "", fmt.Errorf("couldn't find attribute role_id")
+					}
+
+					return fmt.Sprintf("%s,%s", testutil.OrganizationId, roleId), nil
+				},
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Update
+			{
+				ConfigVariables: testConfigVarsOrganizationCustomRoleUpdated,
+				Config:          testutil.NewConfigBuilder().Experiments(testutil.ExperimentIAM).BuildProviderConfig() + resourceOrganizationCustomRole,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "resource_id", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRoleUpdated["organization_id"])),
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "name", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRoleUpdated["role_name"])),
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "description", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRoleUpdated["role_description"])),
+					resource.TestCheckResourceAttr("stackit_authorization_organization_custom_role.organization_custom_role", "permissions.#", "1"),
+					resource.TestCheckTypeSetElemAttr("stackit_authorization_organization_custom_role.organization_custom_role", "permissions.*", testutil.ConvertConfigVariable(testConfigVarsOrganizationCustomRoleUpdated["role_permissions_0"])),
+					resource.TestCheckResourceAttrSet("stackit_authorization_organization_custom_role.organization_custom_role", "role_id"),
 				),
 			},
 			// Deletion is done by the framework implicitly
@@ -553,15 +783,7 @@ func testAccCheckDestroy(s *terraform.State) error {
 
 func testAccCheckResourceManagerProjectsDestroy(s *terraform.State) error {
 	ctx := context.Background()
-	var client *resourcemanager.APIClient
-	var err error
-	if testutil.ResourceManagerCustomEndpoint == "" {
-		client, err = resourcemanager.NewAPIClient()
-	} else {
-		client, err = resourcemanager.NewAPIClient(
-			stackitSdkConfig.WithEndpoint(testutil.ResourceManagerCustomEndpoint),
-		)
-	}
+	client, err := resourcemanager.NewAPIClient(testutil.NewConfigBuilder().BuildClientOptions(testutil.ResourceManagerCustomEndpoint, false)...)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -609,15 +831,7 @@ func testAccCheckResourceManagerProjectsDestroy(s *terraform.State) error {
 
 func testAccCheckResourceManagerFoldersDestroy(s *terraform.State) error {
 	ctx := context.Background()
-	var client *resourcemanager.APIClient
-	var err error
-	if testutil.ResourceManagerCustomEndpoint == "" {
-		client, err = resourcemanager.NewAPIClient()
-	} else {
-		client, err = resourcemanager.NewAPIClient(
-			stackitSdkConfig.WithEndpoint(testutil.ResourceManagerCustomEndpoint),
-		)
-	}
+	client, err := resourcemanager.NewAPIClient(testutil.NewConfigBuilder().BuildClientOptions(testutil.ResourceManagerCustomEndpoint, false)...)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -658,15 +872,7 @@ func testAccCheckResourceManagerFoldersDestroy(s *terraform.State) error {
 
 func testAccCheckOrganizationRoleAssignmentDestroy(s *terraform.State) error {
 	ctx := context.Background()
-	var client *authorization.APIClient
-	var err error
-	if testutil.AuthorizationCustomEndpoint == "" {
-		client, err = authorization.NewAPIClient()
-	} else {
-		client, err = authorization.NewAPIClient(
-			stackitSdkConfig.WithEndpoint(testutil.AuthorizationCustomEndpoint),
-		)
-	}
+	client, err := authorization.NewAPIClient(testutil.NewConfigBuilder().BuildClientOptions(testutil.AuthorizationCustomEndpoint, false)...)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -682,8 +888,8 @@ func testAccCheckOrganizationRoleAssignmentDestroy(s *terraform.State) error {
 		orgRoleAssignmentsToDestroy = append(
 			orgRoleAssignmentsToDestroy,
 			authorization.Member{
-				Role:    utils.Ptr(terraformId[1]),
-				Subject: utils.Ptr(terraformId[2]),
+				Role:    new(terraformId[1]),
+				Subject: new(terraformId[2]),
 			},
 		)
 	}
@@ -694,7 +900,7 @@ func testAccCheckOrganizationRoleAssignmentDestroy(s *terraform.State) error {
 	containerParentId := testutil.OrganizationId
 
 	payload := authorization.RemoveMembersPayload{
-		ResourceType: utils.Ptr("organization"),
+		ResourceType: new("organization"),
 		Members:      &orgRoleAssignmentsToDestroy,
 	}
 
@@ -705,15 +911,7 @@ func testAccCheckOrganizationRoleAssignmentDestroy(s *terraform.State) error {
 
 func testAccCheckServiceAccountRoleAssignmentDestroy(s *terraform.State) error {
 	ctx := context.Background()
-	var client *authorization.APIClient
-	var err error
-	if testutil.AuthorizationCustomEndpoint == "" {
-		client, err = authorization.NewAPIClient()
-	} else {
-		client, err = authorization.NewAPIClient(
-			stackitSdkConfig.WithEndpoint(testutil.AuthorizationCustomEndpoint),
-		)
-	}
+	client, err := authorization.NewAPIClient(testutil.NewConfigBuilder().BuildClientOptions(testutil.AuthorizationCustomEndpoint, false)...)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -730,11 +928,11 @@ func testAccCheckServiceAccountRoleAssignmentDestroy(s *terraform.State) error {
 
 		resourceId := terraformId[0]
 		payload := authorization.RemoveMembersPayload{
-			ResourceType: utils.Ptr("service-account"),
+			ResourceType: new("service-account"),
 			Members: &[]authorization.Member{
 				{
-					Role:    utils.Ptr(terraformId[1]),
-					Subject: utils.Ptr(terraformId[2]),
+					Role:    new(terraformId[1]),
+					Subject: new(terraformId[2]),
 				},
 			},
 		}

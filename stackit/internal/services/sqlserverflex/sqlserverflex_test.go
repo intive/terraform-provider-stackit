@@ -8,8 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/sqlserverflex"
+
+	sqlserverflex "github.com/stackitcloud/stackit-sdk-go/services/sqlserverflex/v2api"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/testutil"
 )
 
@@ -44,12 +45,12 @@ resource "stackit_sqlserverflex_instance" "instance" {
 `, region, s.Server.URL, projectId, name, flavorCpu, flavorRam)
 	flavor := testutil.MockResponse{
 		ToJsonBody: &sqlserverflex.ListFlavorsResponse{
-			Flavors: &[]sqlserverflex.InstanceFlavorEntry{
+			Flavors: []sqlserverflex.InstanceFlavorEntry{
 				{
-					Cpu:         utils.Ptr(int64(flavorCpu)),
-					Memory:      utils.Ptr(int64(flavorRam)),
-					Id:          utils.Ptr(flavorId),
-					Description: utils.Ptr("test-flavor-id"),
+					Cpu:         new(int32(flavorCpu)),
+					Memory:      new(int32(flavorRam)),
+					Id:          new(flavorId),
+					Description: new("test-flavor-id"),
 				},
 			},
 		},
@@ -65,7 +66,7 @@ resource "stackit_sqlserverflex_instance" "instance" {
 						testutil.MockResponse{
 							Description: "create",
 							ToJsonBody: sqlserverflex.CreateInstanceResponse{
-								Id: utils.Ptr(instanceId),
+								Id: new(instanceId),
 							},
 						},
 						testutil.MockResponse{

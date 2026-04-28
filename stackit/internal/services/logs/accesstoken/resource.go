@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/stackitcloud/stackit-sdk-go/core/oapierror"
 	logs "github.com/stackitcloud/stackit-sdk-go/services/logs/v1api"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/conversion"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/services/logs/utils"
@@ -296,6 +297,11 @@ func (r *logsAccessTokenResource) Read(ctx context.Context, req resource.ReadReq
 	region := r.providerData.GetRegionWithOverride(model.Region)
 	instanceID := model.InstanceID.ValueString()
 	accessTokenID := model.AccessTokenID.ValueString()
+	if accessTokenID == "" {
+		// Resource not yet created; ID is unknown.
+		resp.State.RemoveResource(ctx)
+		return
+	}
 
 	ctx = tflog.SetField(ctx, "project_id", projectID)
 	ctx = tflog.SetField(ctx, "region", region)
@@ -325,7 +331,7 @@ func (r *logsAccessTokenResource) Read(ctx context.Context, req resource.ReadReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	tflog.Info(ctx, "Logs access token read", map[string]interface{}{
+	tflog.Info(ctx, "Logs access token read", map[string]any{
 		"access_token_id": accessTokenID,
 	})
 }
@@ -381,7 +387,7 @@ func (r *logsAccessTokenResource) Update(ctx context.Context, req resource.Updat
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	tflog.Info(ctx, "Logs access token updated", map[string]interface{}{
+	tflog.Info(ctx, "Logs access token updated", map[string]any{
 		"access_token_id": accessTokenID,
 	})
 }
@@ -408,6 +414,10 @@ func (r *logsAccessTokenResource) Delete(ctx context.Context, req resource.Delet
 
 	err := r.client.DefaultAPI.DeleteAccessToken(ctx, projectID, region, instanceID, accessTokenID).Execute()
 	if err != nil {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound {
+			return
+		}
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error deleting Logs access token", fmt.Sprintf("Calling API: %v", err))
 		return
 	}

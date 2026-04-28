@@ -5,18 +5,17 @@ import (
 	_ "embed"
 	"fmt"
 	"maps"
-	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	coreConfig "github.com/stackitcloud/stackit-sdk-go/core/config"
 	"github.com/stackitcloud/stackit-sdk-go/core/utils"
 	"github.com/stackitcloud/stackit-sdk-go/services/ske"
 	"github.com/stackitcloud/stackit-sdk-go/services/ske/wait"
-	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/testutil"
 )
 
@@ -124,7 +123,7 @@ func TestAccSKEMin(t *testing.T) {
 
 			// 1) Creation
 			{
-				Config:          testutil.SKEProviderConfig() + "\n" + resourceMin,
+				Config:          testutil.NewConfigBuilder().BuildProviderConfig() + "\n" + resourceMin,
 				ConfigVariables: testConfigVarsMin,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// cluster data
@@ -217,23 +216,42 @@ func TestAccSKEMin(t *testing.T) {
 			{
 				Config:          resourceMin,
 				ConfigVariables: configVarsMinUpdated(),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("stackit_ske_cluster.cluster", plancheck.ResourceActionUpdate),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// cluster data
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.#", "1"),
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.0.availability_zones.#", "1"),
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.0.availability_zones.0", testutil.ConvertConfigVariable(testConfigVarsMin["nodepool_availability_zone1"])),
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.0.machine_type", testutil.ConvertConfigVariable(testConfigVarsMin["nodepool_machine_type"])),
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.0.maximum", testutil.ConvertConfigVariable(testConfigVarsMin["nodepool_maximum"])),
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.0.minimum", testutil.ConvertConfigVariable(testConfigVarsMin["nodepool_minimum"])),
-					resource.TestCheckResourceAttr("data.stackit_ske_cluster.cluster", "node_pools.0.name", testutil.ConvertConfigVariable(testConfigVarsMin["nodepool_name"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "project_id", testutil.ConvertConfigVariable(configVarsMinUpdated()["project_id"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "name", testutil.ConvertConfigVariable(configVarsMinUpdated()["name"])),
 
-					resource.TestCheckResourceAttrSet("data.stackit_ske_cluster.cluster", "kubernetes_version_used"),
-					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.enable_kubernetes_version_updates", testutil.ConvertConfigVariable(testConfigVarsMax["maintenance_enable_kubernetes_version_updates"])),
-					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.enable_machine_image_version_updates", testutil.ConvertConfigVariable(testConfigVarsMax["maintenance_enable_machine_image_version_updates"])),
-					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.start", testutil.ConvertConfigVariable(testConfigVarsMax["maintenance_start"])),
-					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.end", testutil.ConvertConfigVariable(testConfigVarsMax["maintenance_end"])),
-					resource.TestCheckResourceAttrSet("data.stackit_ske_cluster.cluster", "kubernetes_version_used"),
-					resource.TestCheckResourceAttrSet("stackit_ske_cluster.cluster", "region"),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.#", "1"),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.0.availability_zones.#", "1"),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.0.availability_zones.0", testutil.ConvertConfigVariable(configVarsMinUpdated()["nodepool_availability_zone1"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.0.machine_type", testutil.ConvertConfigVariable(configVarsMinUpdated()["nodepool_machine_type"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.0.maximum", testutil.ConvertConfigVariable(configVarsMinUpdated()["nodepool_maximum"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.0.minimum", testutil.ConvertConfigVariable(configVarsMinUpdated()["nodepool_minimum"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "node_pools.0.name", testutil.ConvertConfigVariable(configVarsMinUpdated()["nodepool_name"])),
+					resource.TestCheckResourceAttrSet("stackit_ske_cluster.cluster", "node_pools.0.os_version_used"),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "kubernetes_version_min", testutil.ConvertConfigVariable(configVarsMinUpdated()["kubernetes_version_min"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.enable_kubernetes_version_updates", testutil.ConvertConfigVariable(configVarsMinUpdated()["maintenance_enable_kubernetes_version_updates"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.enable_machine_image_version_updates", testutil.ConvertConfigVariable(configVarsMinUpdated()["maintenance_enable_machine_image_version_updates"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.start", testutil.ConvertConfigVariable(configVarsMinUpdated()["maintenance_start"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "maintenance.end", testutil.ConvertConfigVariable(configVarsMinUpdated()["maintenance_end"])),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "region", testutil.ConvertConfigVariable(configVarsMinUpdated()["region"])),
+					resource.TestCheckResourceAttrSet("stackit_ske_cluster.cluster", "kubernetes_version_used"),
+					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "network.control_plane.access_scope", testutil.ConvertConfigVariable(configVarsMinUpdated()["network_control_plane_access_scope"])),
+
+					// Kubeconfig
+					resource.TestCheckResourceAttrPair(
+						"stackit_ske_kubeconfig.kubeconfig", "project_id",
+						"stackit_ske_cluster.cluster", "project_id",
+					),
+					resource.TestCheckResourceAttrPair(
+						"stackit_ske_kubeconfig.kubeconfig", "cluster_name",
+						"stackit_ske_cluster.cluster", "name",
+					),
 				),
 			},
 			// Deletion is done by the framework implicitly
@@ -249,7 +267,7 @@ func TestAccSKEMax(t *testing.T) {
 
 			// 1) Creation
 			{
-				Config:          testutil.SKEProviderConfig() + "\n" + resourceMax,
+				Config:          testutil.NewConfigBuilder().BuildProviderConfig() + "\n" + resourceMax,
 				ConfigVariables: testConfigVarsMax,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// cluster data
@@ -412,6 +430,11 @@ func TestAccSKEMax(t *testing.T) {
 			{
 				Config:          resourceMax,
 				ConfigVariables: configVarsMaxUpdated(),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("stackit_ske_cluster.cluster", plancheck.ResourceActionUpdate),
+					},
+				},
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// cluster data
 					resource.TestCheckResourceAttr("stackit_ske_cluster.cluster", "project_id", testutil.ConvertConfigVariable(configVarsMaxUpdated()["project_id"])),
@@ -478,7 +501,7 @@ func TestAccProviderOption(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				ConfigVariables: testConfigDatasource,
-				Config:          testutil.SKEProviderConfig() + "\n" + dataSourceProviderOptions,
+				Config:          testutil.NewConfigBuilder().BuildProviderConfig() + "\n" + dataSourceProviderOptions,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr("data.stackit_ske_kubernetes_versions.example", "version_state", "SUPPORTED"),
 					resource.TestCheckResourceAttrSet("data.stackit_ske_kubernetes_versions.example", "kubernetes_versions.0.version"),
@@ -503,15 +526,7 @@ func TestAccProviderOption(t *testing.T) {
 
 func testAccCheckSKEDestroy(s *terraform.State) error {
 	ctx := context.Background()
-	var client *ske.APIClient
-	var err error
-	if testutil.SKECustomEndpoint == "" {
-		client, err = ske.NewAPIClient()
-	} else {
-		client, err = ske.NewAPIClient(
-			coreConfig.WithEndpoint(testutil.SKECustomEndpoint),
-		)
-	}
+	client, err := ske.NewAPIClient(testutil.NewConfigBuilder().BuildClientOptions(testutil.SKECustomEndpoint, false)...)
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
@@ -521,8 +536,7 @@ func testAccCheckSKEDestroy(s *terraform.State) error {
 		if rs.Type != "stackit_ske_cluster" {
 			continue
 		}
-		// cluster terraform ID: = "[project_id],[region],[cluster_name]"
-		clusterName := strings.Split(rs.Primary.ID, core.Separator)[2]
+		clusterName := rs.Primary.Attributes["name"]
 		clustersToDestroy = append(clustersToDestroy, clusterName)
 	}
 
@@ -567,15 +581,7 @@ func NewSkeProviderOptions(nodePoolOs string) *SkeProviderOptions {
 
 	ctx := context.Background()
 
-	var client *ske.APIClient
-	var err error
-
-	if testutil.SKECustomEndpoint == "" {
-		client, err = ske.NewAPIClient()
-	} else {
-		client, err = ske.NewAPIClient(coreConfig.WithEndpoint(testutil.SKECustomEndpoint))
-	}
-
+	client, err := ske.NewAPIClient(testutil.NewConfigBuilder().BuildClientOptions(testutil.SKECustomEndpoint, false)...)
 	if err != nil {
 		panic("failed to create SKE client: " + err.Error())
 	}

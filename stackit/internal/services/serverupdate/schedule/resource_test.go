@@ -5,53 +5,56 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	sdk "github.com/stackitcloud/stackit-sdk-go/services/serverupdate"
+	serverupdate "github.com/stackitcloud/stackit-sdk-go/services/serverupdate/v2api"
 )
 
 func TestMapFields(t *testing.T) {
 	const testRegion = "region"
 	tests := []struct {
 		description string
-		input       *sdk.UpdateSchedule
+		input       *serverupdate.UpdateSchedule
 		region      string
 		expected    Model
 		isValid     bool
 	}{
 		{
 			"default_values",
-			&sdk.UpdateSchedule{
-				Id: utils.Ptr(int64(5)),
+			&serverupdate.UpdateSchedule{
+				Id: 5,
 			},
 			testRegion,
 			Model{
-				ID:               types.StringValue("project_uid,region,server_uid,5"),
-				ProjectId:        types.StringValue("project_uid"),
-				ServerId:         types.StringValue("server_uid"),
-				UpdateScheduleId: types.Int64Value(5),
-				Region:           types.StringValue(testRegion),
+				ID:                types.StringValue("project_uid,region,server_uid,5"),
+				ProjectId:         types.StringValue("project_uid"),
+				ServerId:          types.StringValue("server_uid"),
+				UpdateScheduleId:  types.Int32Value(5),
+				Region:            types.StringValue(testRegion),
+				Name:              types.StringValue(""),
+				Rrule:             types.StringValue(""),
+				Enabled:           types.BoolValue(false),
+				MaintenanceWindow: types.Int32Value(0),
 			},
 			true,
 		},
 		{
 			"simple_values",
-			&sdk.UpdateSchedule{
-				Id:                utils.Ptr(int64(5)),
-				Enabled:           utils.Ptr(true),
-				Name:              utils.Ptr("update_schedule_name_1"),
-				Rrule:             utils.Ptr("DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1"),
-				MaintenanceWindow: utils.Ptr(int64(1)),
+			&serverupdate.UpdateSchedule{
+				Id:                5,
+				Enabled:           true,
+				Name:              "update_schedule_name_1",
+				Rrule:             "DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1",
+				MaintenanceWindow: 1,
 			},
 			testRegion,
 			Model{
 				ServerId:          types.StringValue("server_uid"),
 				ProjectId:         types.StringValue("project_uid"),
-				UpdateScheduleId:  types.Int64Value(5),
+				UpdateScheduleId:  types.Int32Value(5),
 				ID:                types.StringValue("project_uid,region,server_uid,5"),
 				Name:              types.StringValue("update_schedule_name_1"),
 				Rrule:             types.StringValue("DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1"),
 				Enabled:           types.BoolValue(true),
-				MaintenanceWindow: types.Int64Value(1),
+				MaintenanceWindow: types.Int32Value(1),
 				Region:            types.StringValue(testRegion),
 			},
 			true,
@@ -59,13 +62,6 @@ func TestMapFields(t *testing.T) {
 		{
 			"nil_response",
 			nil,
-			testRegion,
-			Model{},
-			false,
-		},
-		{
-			"no_resource_id",
-			&sdk.UpdateSchedule{},
 			testRegion,
 			Model{},
 			false,
@@ -98,13 +94,13 @@ func TestToCreatePayload(t *testing.T) {
 	tests := []struct {
 		description string
 		input       *Model
-		expected    *sdk.CreateUpdateSchedulePayload
+		expected    *serverupdate.CreateUpdateSchedulePayload
 		isValid     bool
 	}{
 		{
 			"default_values",
 			&Model{},
-			&sdk.CreateUpdateSchedulePayload{},
+			&serverupdate.CreateUpdateSchedulePayload{},
 			true,
 		},
 		{
@@ -113,13 +109,13 @@ func TestToCreatePayload(t *testing.T) {
 				Name:              types.StringValue("name"),
 				Enabled:           types.BoolValue(true),
 				Rrule:             types.StringValue("DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1"),
-				MaintenanceWindow: types.Int64Value(1),
+				MaintenanceWindow: types.Int32Value(1),
 			},
-			&sdk.CreateUpdateSchedulePayload{
-				Name:              utils.Ptr("name"),
-				Enabled:           utils.Ptr(true),
-				Rrule:             utils.Ptr("DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1"),
-				MaintenanceWindow: utils.Ptr(int64(1)),
+			&serverupdate.CreateUpdateSchedulePayload{
+				Name:              "name",
+				Enabled:           true,
+				Rrule:             "DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1",
+				MaintenanceWindow: 1,
 			},
 			true,
 		},
@@ -129,9 +125,9 @@ func TestToCreatePayload(t *testing.T) {
 				Name:  types.StringValue(""),
 				Rrule: types.StringValue(""),
 			},
-			&sdk.CreateUpdateSchedulePayload{
-				Name:  utils.Ptr(""),
-				Rrule: utils.Ptr(""),
+			&serverupdate.CreateUpdateSchedulePayload{
+				Name:  "",
+				Rrule: "",
 			},
 			true,
 		},
@@ -165,13 +161,13 @@ func TestToUpdatePayload(t *testing.T) {
 	tests := []struct {
 		description string
 		input       *Model
-		expected    *sdk.UpdateUpdateSchedulePayload
+		expected    *serverupdate.UpdateUpdateSchedulePayload
 		isValid     bool
 	}{
 		{
 			"default_values",
 			&Model{},
-			&sdk.UpdateUpdateSchedulePayload{},
+			&serverupdate.UpdateUpdateSchedulePayload{},
 			true,
 		},
 		{
@@ -180,13 +176,13 @@ func TestToUpdatePayload(t *testing.T) {
 				Name:              types.StringValue("name"),
 				Enabled:           types.BoolValue(true),
 				Rrule:             types.StringValue("DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1"),
-				MaintenanceWindow: types.Int64Value(1),
+				MaintenanceWindow: types.Int32Value(1),
 			},
-			&sdk.UpdateUpdateSchedulePayload{
-				Name:              utils.Ptr("name"),
-				Enabled:           utils.Ptr(true),
-				Rrule:             utils.Ptr("DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1"),
-				MaintenanceWindow: utils.Ptr(int64(1)),
+			&serverupdate.UpdateUpdateSchedulePayload{
+				Name:              "name",
+				Enabled:           true,
+				Rrule:             "DTSTART;TZID=Europe/Sofia:20200803T023000 RRULE:FREQ=DAILY;INTERVAL=1",
+				MaintenanceWindow: 1,
 			},
 			true,
 		},
@@ -196,9 +192,9 @@ func TestToUpdatePayload(t *testing.T) {
 				Name:  types.StringValue(""),
 				Rrule: types.StringValue(""),
 			},
-			&sdk.UpdateUpdateSchedulePayload{
-				Name:  utils.Ptr(""),
-				Rrule: utils.Ptr(""),
+			&serverupdate.UpdateUpdateSchedulePayload{
+				Name:  "",
+				Rrule: "",
 			},
 			true,
 		},

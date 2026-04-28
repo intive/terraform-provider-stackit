@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/stackitcloud/stackit-sdk-go/core/utils"
 	"github.com/stackitcloud/stackit-sdk-go/services/observability"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/testutil"
 )
 
@@ -40,10 +41,10 @@ resource "stackit_observability_instance" "instance" {
 	planList := testutil.MockResponse{
 		Description: "plan list",
 		ToJsonBody: observability.PlansResponse{
-			Plans: utils.Ptr([]observability.Plan{
+			Plans: new([]observability.Plan{
 				{
 					Name:   utils.Ptr(planName),
-					PlanId: utils.Ptr(planId),
+					PlanId: new(planId),
 				},
 			}),
 		},
@@ -61,7 +62,7 @@ resource "stackit_observability_instance" "instance" {
 						testutil.MockResponse{
 							Description: "create instance",
 							ToJsonBody: observability.CreateInstanceResponse{
-								InstanceId: utils.Ptr(instanceId),
+								InstanceId: new(instanceId),
 							},
 						},
 						testutil.MockResponse{
@@ -90,7 +91,7 @@ resource "stackit_observability_instance" "instance" {
 						testutil.MockResponse{
 							Description: "delete waiter",
 							ToJsonBody: observability.GetInstanceResponse{
-								Id:     utils.Ptr(instanceId),
+								Id:     new(instanceId),
 								Status: observability.GETINSTANCERESPONSESTATUS_DELETE_SUCCEEDED.Ptr(),
 							},
 						},
@@ -170,7 +171,7 @@ resource "stackit_observability_scrapeconfig" "instance" {
 						testutil.MockResponse{
 							Description: "delete waiter",
 							ToJsonBody: observability.ListScrapeConfigsResponse{
-								Data: utils.Ptr([]observability.Job{}),
+								Data: new([]observability.Job{}),
 							},
 						},
 					)

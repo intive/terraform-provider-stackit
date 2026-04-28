@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/validate"
@@ -226,7 +227,7 @@ func mapDatasourceFields(ctx context.Context, volumeResp *iaas.Volume, model *Da
 	} else if volumeResp.Id != nil {
 		volumeId = *volumeResp.Id
 	} else {
-		return fmt.Errorf("Volume id not present")
+		return fmt.Errorf("volume id not present")
 	}
 
 	model.Id = utils.BuildInternalTerraformId(model.ProjectId.ValueString(), region, volumeId)

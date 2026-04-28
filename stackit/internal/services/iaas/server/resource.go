@@ -3,11 +3,14 @@ package server
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 
 	iaasUtils "github.com/stackitcloud/terraform-provider-stackit/stackit/internal/services/iaas/utils"
 
@@ -31,6 +34,7 @@ import (
 	"github.com/stackitcloud/stackit-sdk-go/core/oapierror"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas/wait"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/conversion"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
@@ -314,6 +318,9 @@ func (r *serverResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 						PlanModifiers: []planmodifier.String{
 							stringplanmodifier.RequiresReplace(),
 						},
+						Validators: []validator.String{
+							stringvalidator.OneOf(supportedSourceTypes...),
+						},
 					},
 					"source_id": schema.StringAttribute{
 						Description: "The ID of the source, either image ID or volume ID",
@@ -326,6 +333,7 @@ func (r *serverResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 						Description: "Delete the volume during the termination of the server. Only allowed when `source_type` is `image`.",
 						Optional:    true,
 						Computed:    true,
+						Default:     booldefault.StaticBool(false),
 						PlanModifiers: []planmodifier.Bool{
 							boolplanmodifier.RequiresReplace(),
 						},
@@ -670,6 +678,11 @@ func (r *serverResource) Read(ctx context.Context, req resource.ReadRequest, res
 	projectId := model.ProjectId.ValueString()
 	region := r.providerData.GetRegionWithOverride(model.Region)
 	serverId := model.ServerId.ValueString()
+	if serverId == "" {
+		// Resource not yet created; ID is unknown.
+		resp.State.RemoveResource(ctx)
+		return
+	}
 
 	ctx = core.InitProviderContext(ctx)
 
@@ -681,8 +694,8 @@ func (r *serverResource) Read(ctx context.Context, req resource.ReadRequest, res
 	serverReq = serverReq.Details(true)
 	serverResp, err := serverReq.Execute()
 	if err != nil {
-		oapiErr, ok := err.(*oapierror.GenericOpenAPIError) //nolint:errorlint //complaining that error.As should be used to catch wrapped errors, but this error should not be wrapped
-		if ok && oapiErr.StatusCode == http.StatusNotFound {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound {
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -711,7 +724,7 @@ func (r *serverResource) updateServerAttributes(ctx context.Context, model, stat
 	// Generate API request body from model
 	payload, err := toUpdatePayload(ctx, model, stateModel.Labels)
 	if err != nil {
-		return nil, fmt.Errorf("Creating API payload: %w", err)
+		return nil, fmt.Errorf("creating API payload: %w", err)
 	}
 	projectId := model.ProjectId.ValueString()
 	serverId := model.ServerId.ValueString()
@@ -720,7 +733,7 @@ func (r *serverResource) updateServerAttributes(ctx context.Context, model, stat
 	// Update existing server
 	updatedServer, err = r.client.UpdateServer(ctx, projectId, region, serverId).UpdateServerPayload(*payload).Execute()
 	if err != nil {
-		return nil, fmt.Errorf("Calling API: %w", err)
+		return nil, fmt.Errorf("calling API: %w", err)
 	}
 
 	// Update machine type
@@ -731,7 +744,7 @@ func (r *serverResource) updateServerAttributes(ctx context.Context, model, stat
 		}
 		err := r.client.ResizeServer(ctx, projectId, region, serverId).ResizeServerPayload(payload).Execute()
 		if err != nil {
-			return nil, fmt.Errorf("Resizing the server, calling API: %w", err)
+			return nil, fmt.Errorf("resizing the server, calling API: %w", err)
 		}
 
 		_, err = wait.ResizeServerWaitHandler(ctx, r.client, projectId, region, serverId).WaitWithContext(ctx)
@@ -856,6 +869,11 @@ func (r *serverResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	// Delete existing server
 	err := r.client.DeleteServer(ctx, projectId, region, serverId).Execute()
 	if err != nil {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error deleting server", fmt.Sprintf("Calling API: %v", err))
 		return
 	}

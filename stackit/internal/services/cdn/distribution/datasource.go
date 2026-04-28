@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	cdnSdk "github.com/stackitcloud/stackit-sdk-go/services/cdn/v1api"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/conversion"
 	cdnUtils "github.com/stackitcloud/terraform-provider-stackit/stackit/internal/services/cdn/utils"
 
@@ -14,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/stackitcloud/stackit-sdk-go/services/cdn"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/features"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
@@ -38,10 +40,13 @@ var dataSourceConfigTypes = map[string]attr.Type{
 	"optimizer": types.ObjectType{
 		AttrTypes: optimizerTypes, // Shared from resource.go
 	},
+	"redirects": types.ObjectType{
+		AttrTypes: redirectsTypes, // Shared from resource.go
+	},
 }
 
 type distributionDataSource struct {
-	client *cdn.APIClient
+	client *cdnSdk.APIClient
 }
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -199,6 +204,57 @@ func (r *distributionDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 							},
 						},
 					},
+					"redirects": schema.SingleNestedAttribute{
+						Computed:    true,
+						Description: schemaDescriptions["config_redirects"],
+						Attributes: map[string]schema.Attribute{
+							"rules": schema.ListNestedAttribute{
+								Description: schemaDescriptions["config_redirects_rules"],
+								Computed:    true,
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"description": schema.StringAttribute{
+											Description: schemaDescriptions["config_redirects_rule_description"],
+											Computed:    true,
+										},
+										"enabled": schema.BoolAttribute{
+											Computed:    true,
+											Description: schemaDescriptions["config_redirects_rule_enabled"],
+										},
+										"target_url": schema.StringAttribute{
+											Computed:    true,
+											Description: schemaDescriptions["config_redirects_rule_target_url"],
+										},
+										"status_code": schema.Int32Attribute{
+											Computed:    true,
+											Description: schemaDescriptions["config_redirects_rule_status_code"],
+										},
+										"rule_match_condition": schema.StringAttribute{
+											Computed:    true,
+											Description: schemaDescriptions["config_redirects_rule_match_condition"],
+										},
+										"matchers": schema.ListNestedAttribute{
+											Description: schemaDescriptions["config_redirects_rule_matchers"],
+											Computed:    true,
+											NestedObject: schema.NestedAttributeObject{
+												Attributes: map[string]schema.Attribute{
+													"values": schema.ListAttribute{
+														Description: schemaDescriptions["config_redirects_rule_matcher_values"],
+														Computed:    true,
+														ElementType: types.StringType,
+													},
+													"value_match_condition": schema.StringAttribute{
+														Description: schemaDescriptions["config_redirects_rule_match_condition"],
+														Computed:    true,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -217,7 +273,7 @@ func (r *distributionDataSource) Read(ctx context.Context, req datasource.ReadRe
 
 	projectId := model.ProjectId.ValueString()
 	distributionId := model.DistributionId.ValueString()
-	distributionResp, err := r.client.GetDistributionExecute(ctx, projectId, distributionId)
+	distributionResp, err := r.client.DefaultAPI.GetDistribution(ctx, projectId, distributionId).Execute()
 	if err != nil {
 		utils.LogError(
 			ctx,
@@ -234,7 +290,7 @@ func (r *distributionDataSource) Read(ctx context.Context, req datasource.ReadRe
 	ctx = core.LogResponse(ctx)
 
 	// Use specific Data Source mapping function
-	err = mapDataSourceFields(ctx, distributionResp.Distribution, &model)
+	err = mapDataSourceFields(ctx, &distributionResp.Distribution, &model)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error reading CDN distribution", fmt.Sprintf("Error processing API response: %v", err))
 		return
@@ -245,7 +301,7 @@ func (r *distributionDataSource) Read(ctx context.Context, req datasource.ReadRe
 
 // mapDataSourceFields is a specialized version of mapFields for the Data Source.
 // It uses dataSourceConfigTypes (excludes bucket access and secrets) and skips state restoration logic.
-func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, model *Model) error {
+func mapDataSourceFields(ctx context.Context, distribution *cdnSdk.Distribution, model *Model) error {
 	if distribution == nil {
 		return fmt.Errorf("response input is nil")
 	}
@@ -254,13 +310,13 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 	}
 
 	// Basic fields mapping (same as resource)
-	if distribution.ProjectId == nil || distribution.Id == nil || distribution.CreatedAt == nil || distribution.UpdatedAt == nil || distribution.Status == nil {
+	if distribution.ProjectId == "" || distribution.Id == "" || distribution.Status == "" {
 		return fmt.Errorf("missing required fields in response")
 	}
 
-	model.ID = utils.BuildInternalTerraformId(*distribution.ProjectId, *distribution.Id)
-	model.DistributionId = types.StringValue(*distribution.Id)
-	model.ProjectId = types.StringValue(*distribution.ProjectId)
+	model.ID = utils.BuildInternalTerraformId(distribution.ProjectId, distribution.Id)
+	model.DistributionId = types.StringValue(distribution.Id)
+	model.ProjectId = types.StringValue(distribution.ProjectId)
 	model.Status = types.StringValue(string(distribution.GetStatus()))
 	model.CreatedAt = types.StringValue(distribution.CreatedAt.String())
 	model.UpdatedAt = types.StringValue(distribution.UpdatedAt.String())
@@ -268,8 +324,8 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 	// Distribution Errors
 	distributionErrors := []attr.Value{}
 	if distribution.Errors != nil {
-		for _, e := range *distribution.Errors {
-			distributionErrors = append(distributionErrors, types.StringValue(*e.En))
+		for _, e := range distribution.Errors {
+			distributionErrors = append(distributionErrors, types.StringValue(e.En))
 		}
 	}
 	modelErrors, diags := types.ListValue(types.StringType, distributionErrors)
@@ -280,7 +336,7 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 
 	// Regions
 	regions := []attr.Value{}
-	for _, r := range *distribution.Config.Regions {
+	for _, r := range distribution.Config.Regions {
 		regions = append(regions, types.StringValue(string(r)))
 	}
 	modelRegions, diags := types.ListValue(types.StringType, regions)
@@ -290,14 +346,107 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 
 	// Blocked Countries
 	var blockedCountries []attr.Value
-	if distribution.Config != nil && distribution.Config.BlockedCountries != nil {
-		for _, c := range *distribution.Config.BlockedCountries {
+	if distribution.Config.BlockedCountries != nil {
+		for _, c := range distribution.Config.BlockedCountries {
 			blockedCountries = append(blockedCountries, types.StringValue(string(c)))
 		}
 	}
 	modelBlockedCountries, diags := types.ListValue(types.StringType, blockedCountries)
 	if diags.HasError() {
 		return core.DiagsToError(diags)
+	}
+
+	// redirects
+	redirectsVal := types.ObjectNull(redirectsTypes)
+	if distribution.Config.Redirects != nil && distribution.Config.Redirects.Rules != nil {
+		var tfRules []attr.Value
+		for _, r := range distribution.Config.Redirects.Rules {
+			var tfMatchers []attr.Value
+			if r.Matchers != nil {
+				for _, m := range r.Matchers {
+					var tfValues []attr.Value
+					if m.Values != nil {
+						for _, v := range m.Values {
+							tfValues = append(tfValues, types.StringValue(v))
+						}
+					}
+					tfValuesList, diags := types.ListValue(types.StringType, tfValues)
+					if diags.HasError() {
+						return core.DiagsToError(diags)
+					}
+
+					tfValMatchCond := types.StringNull()
+					if m.ValueMatchCondition != nil {
+						tfValMatchCond = types.StringValue(string(*m.ValueMatchCondition))
+					}
+
+					tfMatcherObj, diags := types.ObjectValue(matcherTypes, map[string]attr.Value{
+						"values":                tfValuesList,
+						"value_match_condition": tfValMatchCond,
+					})
+					if diags.HasError() {
+						return core.DiagsToError(diags)
+					}
+					tfMatchers = append(tfMatchers, tfMatcherObj)
+				}
+			}
+
+			tfMatchersList, diags := types.ListValue(types.ObjectType{AttrTypes: matcherTypes}, tfMatchers)
+			if diags.HasError() {
+				return core.DiagsToError(diags)
+			}
+
+			tfDesc := types.StringNull()
+			if r.Description != nil {
+				tfDesc = types.StringValue(*r.Description)
+			}
+
+			tfEnabled := types.BoolNull()
+			if r.Enabled != nil {
+				tfEnabled = types.BoolValue(*r.Enabled)
+			}
+
+			tfTargetUrl := types.StringNull()
+			if r.TargetUrl != "" {
+				tfTargetUrl = types.StringValue(r.TargetUrl)
+			}
+
+			tfStatusCode := types.Int32Null()
+			if r.StatusCode != 0 {
+				tfStatusCode = types.Int32Value(int32(r.StatusCode)) // nolint:gosec // HTTP status codes are safely within int32 bounds
+			}
+
+			tfRuleMatchCond := types.StringNull()
+			if r.RuleMatchCondition != nil {
+				tfRuleMatchCond = types.StringValue(string(*r.RuleMatchCondition))
+			}
+
+			tfRuleObj, diags := types.ObjectValue(redirectRuleTypes, map[string]attr.Value{
+				"description":          tfDesc,
+				"enabled":              tfEnabled,
+				"target_url":           tfTargetUrl,
+				"status_code":          tfStatusCode,
+				"rule_match_condition": tfRuleMatchCond,
+				"matchers":             tfMatchersList,
+			})
+			if diags.HasError() {
+				return core.DiagsToError(diags)
+			}
+			tfRules = append(tfRules, tfRuleObj)
+		}
+
+		tfRulesList, diags := types.ListValue(types.ObjectType{AttrTypes: redirectRuleTypes}, tfRules)
+		if diags.HasError() {
+			return core.DiagsToError(diags)
+		}
+
+		var objDiags diag.Diagnostics
+		redirectsVal, objDiags = types.ObjectValue(redirectsTypes, map[string]attr.Value{
+			"rules": tfRulesList,
+		})
+		if objDiags.HasError() {
+			return core.DiagsToError(objDiags)
+		}
 	}
 
 	// Prepare Backend Values
@@ -308,9 +457,9 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 	// If HTTP Backend is present
 	if distribution.Config.Backend.HttpBackend != nil {
 		// Headers
-		if origHeaders := distribution.Config.Backend.HttpBackend.OriginRequestHeaders; origHeaders != nil && len(*origHeaders) > 0 {
+		if origHeaders := distribution.Config.Backend.HttpBackend.OriginRequestHeaders; len(origHeaders) > 0 {
 			headers := map[string]attr.Value{}
-			for k, v := range *origHeaders {
+			for k, v := range origHeaders {
 				headers[k] = types.StringValue(v)
 			}
 			mappedHeaders, diags := types.MapValue(types.StringType, headers)
@@ -321,9 +470,9 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 		}
 
 		// Geofencing
-		if geofencingAPI := distribution.Config.Backend.HttpBackend.Geofencing; geofencingAPI != nil && len(*geofencingAPI) > 0 {
+		if geofencingAPI := distribution.Config.Backend.HttpBackend.Geofencing; len(geofencingAPI) > 0 {
 			geofencingMapElems := make(map[string]attr.Value)
-			for url, countries := range *geofencingAPI {
+			for url, countries := range geofencingAPI {
 				listVal, diags := types.ListValueFrom(ctx, types.StringType, countries)
 				if diags.HasError() {
 					return core.DiagsToError(diags)
@@ -339,7 +488,7 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 
 		backendValues = map[string]attr.Value{
 			"type":                   types.StringValue("http"),
-			"origin_url":             types.StringValue(*distribution.Config.Backend.HttpBackend.OriginUrl),
+			"origin_url":             types.StringValue(distribution.Config.Backend.HttpBackend.OriginUrl),
 			"origin_request_headers": originRequestHeaders,
 			"geofencing":             geofencingVal,
 			"bucket_url":             types.StringNull(),
@@ -349,8 +498,8 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 		// For Data Source, we strictly return what API gives us. No secret restoration.
 		backendValues = map[string]attr.Value{
 			"type":                   types.StringValue("bucket"),
-			"bucket_url":             types.StringValue(*distribution.Config.Backend.BucketBackend.BucketUrl),
-			"region":                 types.StringValue(*distribution.Config.Backend.BucketBackend.Region),
+			"bucket_url":             types.StringValue(distribution.Config.Backend.BucketBackend.BucketUrl),
+			"region":                 types.StringValue(distribution.Config.Backend.BucketBackend.Region),
 			"origin_url":             types.StringNull(),
 			"origin_request_headers": types.MapNull(types.StringType),
 			"geofencing":             types.MapNull(geofencingTypes.ElemType),
@@ -369,7 +518,7 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 		if enabled, ok := o.GetEnabledOk(); ok {
 			var diags diag.Diagnostics
 			optimizerVal, diags = types.ObjectValue(optimizerTypes, map[string]attr.Value{
-				"enabled": types.BoolValue(enabled),
+				"enabled": types.BoolPointerValue(enabled),
 			})
 			if diags.HasError() {
 				return core.DiagsToError(diags)
@@ -383,6 +532,7 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 		"regions":           modelRegions,
 		"blocked_countries": modelBlockedCountries,
 		"optimizer":         optimizerVal,
+		"redirects":         redirectsVal,
 	})
 	if diags.HasError() {
 		return core.DiagsToError(diags)
@@ -392,11 +542,11 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 	// Domains
 	domains := []attr.Value{}
 	if distribution.Domains != nil {
-		for _, d := range *distribution.Domains {
+		for _, d := range distribution.Domains {
 			domainErrors := []attr.Value{}
 			if d.Errors != nil {
-				for _, e := range *d.Errors {
-					domainErrors = append(domainErrors, types.StringValue(*e.En))
+				for _, e := range d.Errors {
+					domainErrors = append(domainErrors, types.StringValue(e.En))
 				}
 			}
 			modelDomainErrors, diags := types.ListValue(types.StringType, domainErrors)
@@ -404,9 +554,9 @@ func mapDataSourceFields(ctx context.Context, distribution *cdn.Distribution, mo
 				return core.DiagsToError(diags)
 			}
 			modelDomain, diags := types.ObjectValue(domainTypes, map[string]attr.Value{
-				"name":   types.StringValue(*d.Name),
-				"status": types.StringValue(string(*d.Status)),
-				"type":   types.StringValue(string(*d.Type)),
+				"name":   types.StringValue(d.Name),
+				"status": types.StringValue(string(d.Status)),
+				"type":   types.StringValue(string(d.Type)),
 				"errors": modelDomainErrors,
 			})
 			if diags.HasError() {

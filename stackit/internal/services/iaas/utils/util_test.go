@@ -14,6 +14,7 @@ import (
 	sdkClients "github.com/stackitcloud/stackit-sdk-go/core/clients"
 	"github.com/stackitcloud/stackit-sdk-go/core/config"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
 )
@@ -98,7 +99,7 @@ func TestConfigureClient(t *testing.T) {
 
 func TestMapLabels(t *testing.T) {
 	type args struct {
-		responseLabels *map[string]interface{}
+		responseLabels *map[string]any
 		currentLabels  types.Map
 	}
 	tests := []struct {
@@ -110,7 +111,7 @@ func TestMapLabels(t *testing.T) {
 		{
 			name: "response labels is set",
 			args: args{
-				responseLabels: &map[string]interface{}{
+				responseLabels: &map[string]any{
 					"foo1": "bar1",
 					"foo2": "bar2",
 				},
@@ -125,7 +126,7 @@ func TestMapLabels(t *testing.T) {
 		{
 			name: "response labels is set but empty",
 			args: args{
-				responseLabels: &map[string]interface{}{},
+				responseLabels: &map[string]any{},
 				currentLabels:  types.MapUnknown(types.StringType),
 			},
 			wantErr: false,

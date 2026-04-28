@@ -12,6 +12,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/validate"
@@ -22,7 +23,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/stackitcloud/stackit-sdk-go/core/oapierror"
-	"github.com/stackitcloud/stackit-sdk-go/services/postgresflex"
+	postgresflex "github.com/stackitcloud/stackit-sdk-go/services/postgresflex/v2api"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -214,7 +215,7 @@ func (r *databaseResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 	// Create new database
-	databaseResp, err := r.client.CreateDatabase(ctx, projectId, region, instanceId).CreateDatabasePayload(*payload).Execute()
+	databaseResp, err := r.client.DefaultAPI.CreateDatabase(ctx, projectId, region, instanceId).CreateDatabasePayload(*payload).Execute()
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error creating database", fmt.Sprintf("Calling API: %v", err))
 		return
@@ -264,6 +265,11 @@ func (r *databaseResource) Read(ctx context.Context, req resource.ReadRequest, r
 	projectId := model.ProjectId.ValueString()
 	instanceId := model.InstanceId.ValueString()
 	databaseId := model.DatabaseId.ValueString()
+	if databaseId == "" {
+		// Resource not yet created; ID is unknown.
+		resp.State.RemoveResource(ctx)
+		return
+	}
 	region := r.providerData.GetRegionWithOverride(model.Region)
 	ctx = tflog.SetField(ctx, "project_id", projectId)
 	ctx = tflog.SetField(ctx, "instance_id", instanceId)
@@ -272,8 +278,8 @@ func (r *databaseResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	databaseResp, err := getDatabase(ctx, r.client, projectId, region, instanceId, databaseId)
 	if err != nil {
-		oapiErr, ok := err.(*oapierror.GenericOpenAPIError) //nolint:errorlint //complaining that error.As should be used to catch wrapped errors, but this error should not be wrapped
-		if (ok && oapiErr.StatusCode == http.StatusNotFound) || errors.Is(err, databaseNotFoundErr) {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if (errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound) || errors.Is(err, errDatabaseNotFound) {
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -327,9 +333,14 @@ func (r *databaseResource) Delete(ctx context.Context, req resource.DeleteReques
 	ctx = tflog.SetField(ctx, "region", region)
 
 	// Delete existing record set
-	err := r.client.DeleteDatabase(ctx, projectId, region, instanceId, databaseId).Execute()
+	err := r.client.DefaultAPI.DeleteDatabase(ctx, projectId, region, instanceId, databaseId).Execute()
 	if err != nil {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound {
+			return
+		}
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error deleting database", fmt.Sprintf("Calling API: %v", err))
+		return
 	}
 
 	ctx = core.LogResponse(ctx)
@@ -389,7 +400,7 @@ func mapFields(databaseResp *postgresflex.InstanceDatabase, model *Model, region
 	model.Region = types.StringValue(region)
 
 	if databaseResp.Options != nil {
-		owner, ok := (*databaseResp.Options)["owner"]
+		owner, ok := (databaseResp.Options)["owner"]
 		if ok {
 			ownerStr, ok := owner.(string)
 			if !ok {
@@ -418,21 +429,21 @@ func toCreatePayload(model *Model) (*postgresflex.CreateDatabasePayload, error) 
 	}, nil
 }
 
-var databaseNotFoundErr = errors.New("database not found")
+var errDatabaseNotFound = errors.New("database not found")
 
 // The API does not have a GetDatabase endpoint, only ListDatabases
 func getDatabase(ctx context.Context, client *postgresflex.APIClient, projectId, region, instanceId, databaseId string) (*postgresflex.InstanceDatabase, error) {
-	resp, err := client.ListDatabases(ctx, projectId, region, instanceId).Execute()
+	resp, err := client.DefaultAPI.ListDatabases(ctx, projectId, region, instanceId).Execute()
 	if err != nil {
 		return nil, err
 	}
 	if resp == nil || resp.Databases == nil {
 		return nil, fmt.Errorf("response is nil")
 	}
-	for _, database := range *resp.Databases {
+	for _, database := range resp.Databases {
 		if database.Id != nil && *database.Id == databaseId {
 			return &database, nil
 		}
 	}
-	return nil, databaseNotFoundErr
+	return nil, errDatabaseNotFound
 }

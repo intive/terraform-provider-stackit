@@ -12,12 +12,13 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/validate"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
-	"github.com/stackitcloud/stackit-sdk-go/services/secretsmanager"
+	secretsmanager "github.com/stackitcloud/stackit-sdk-go/services/secretsmanager/v1api"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -58,12 +59,17 @@ func (r *instanceDataSource) Configure(ctx context.Context, req datasource.Confi
 // Schema defines the schema for the data source.
 func (r *instanceDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	descriptions := map[string]string{
-		"main":        "Secrets Manager instance data source schema. Must have a `region` specified in the provider configuration.",
-		"id":          "Terraform's internal resource ID. It is structured as \"`project_id`,`instance_id`\".",
-		"instance_id": "ID of the Secrets Manager instance.",
-		"project_id":  "STACKIT project ID to which the instance is associated.",
-		"name":        "Instance name.",
-		"acls":        "The access control list for this instance. Each entry is an IP or IP range that is permitted to access, in CIDR notation",
+		"main":                          "Secrets Manager instance data source schema. Must have a `region` specified in the provider configuration.",
+		"id":                            "Terraform's internal resource ID. It is structured as \"`project_id`,`instance_id`\".",
+		"instance_id":                   "ID of the Secrets Manager instance.",
+		"project_id":                    "STACKIT project ID to which the instance is associated.",
+		"name":                          "Instance name.",
+		"acls":                          "The access control list for this instance. Each entry is an IP or IP range that is permitted to access, in CIDR notation",
+		"kms_key":                       "The STACKIT-KMS key for secret encryption and decryption.",
+		"kms_key.key_id":                "UUID of the key within the STACKIT-KMS to use for the encryption.",
+		"kms_key.key_ring_id":           "UUID of the keyring where the key is located within the STACKTI-KMS.",
+		"kms_key.key_version":           "Version of the key within the STACKIT-KMS to use for the encryption.",
+		"kms_key.service_account_email": "Service-Account linked to the Key within the STACKIT-KMS.",
 	}
 
 	resp.Schema = schema.Schema{
@@ -98,6 +104,28 @@ func (r *instanceDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				ElementType: types.StringType,
 				Computed:    true,
 			},
+			"kms_key": schema.SingleNestedAttribute{
+				Description: descriptions["kms_key"],
+				Computed:    true,
+				Attributes: map[string]schema.Attribute{
+					"key_id": schema.StringAttribute{
+						Description: descriptions["kms_key.key_id"],
+						Computed:    true,
+					},
+					"key_ring_id": schema.StringAttribute{
+						Description: descriptions["kms_key.key_ring_id"],
+						Computed:    true,
+					},
+					"key_version": schema.Int64Attribute{
+						Description: descriptions["kms_key.key_version"],
+						Computed:    true,
+					},
+					"service_account_email": schema.StringAttribute{
+						Description: descriptions["kms_key.service_account_email"],
+						Computed:    true,
+					},
+				},
+			},
 		},
 	}
 }
@@ -118,7 +146,7 @@ func (r *instanceDataSource) Read(ctx context.Context, req datasource.ReadReques
 	ctx = tflog.SetField(ctx, "project_id", projectId)
 	ctx = tflog.SetField(ctx, "instance_id", instanceId)
 
-	instanceResp, err := r.client.GetInstance(ctx, projectId, instanceId).Execute()
+	instanceResp, err := r.client.DefaultAPI.GetInstance(ctx, projectId, instanceId).Execute()
 	if err != nil {
 		utils.LogError(
 			ctx,
@@ -136,7 +164,7 @@ func (r *instanceDataSource) Read(ctx context.Context, req datasource.ReadReques
 
 	ctx = core.LogResponse(ctx)
 
-	aclList, err := r.client.ListACLs(ctx, projectId, instanceId).Execute()
+	aclList, err := r.client.DefaultAPI.ListACLs(ctx, projectId, instanceId).Execute()
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error reading instance", fmt.Sprintf("Calling API for ACLs data: %v", err))
 		return

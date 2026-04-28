@@ -8,8 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/scf"
+	scf "github.com/stackitcloud/stackit-sdk-go/services/scf/v1api"
 )
 
 var (
@@ -35,23 +34,23 @@ func TestMapFields(t *testing.T) {
 		{
 			description: "minimal_input",
 			input: &scf.Organization{
-				Guid:      utils.Ptr(testOrgId),
-				Name:      utils.Ptr("scf-org-min-instance"),
-				Region:    utils.Ptr(testRegion),
-				CreatedAt: &createdTime,
-				UpdatedAt: &createdTime,
-				ProjectId: utils.Ptr(testProjectId),
+				Guid:      testOrgId,
+				Name:      "scf-org-min-instance",
+				Region:    testRegion,
+				CreatedAt: createdTime,
+				UpdatedAt: createdTime,
+				ProjectId: testProjectId,
 			},
 			expected: &Model{
 				Id:         types.StringValue(fmt.Sprintf("%s,%s,%s", testProjectId, testRegion, testOrgId)),
 				ProjectId:  types.StringValue(testProjectId),
 				Region:     types.StringValue(testRegion),
 				Name:       types.StringValue("scf-org-min-instance"),
-				PlatformId: types.StringNull(),
+				PlatformId: types.StringValue(""),
 				OrgId:      types.StringValue(testOrgId),
-				QuotaId:    types.StringNull(),
-				Status:     types.StringNull(),
-				Suspended:  types.BoolNull(),
+				QuotaId:    types.StringValue(""),
+				Status:     types.StringValue(""),
+				Suspended:  types.BoolValue(false),
 				CreateAt:   types.StringValue("2025-01-01 00:00:00 +0000 UTC"),
 				UpdatedAt:  types.StringValue("2025-01-01 00:00:00 +0000 UTC"),
 			},
@@ -60,16 +59,16 @@ func TestMapFields(t *testing.T) {
 		{
 			description: "max_input",
 			input: &scf.Organization{
-				CreatedAt:  &createdTime,
-				Guid:       utils.Ptr(testOrgId),
-				Name:       utils.Ptr("scf-full-org"),
-				PlatformId: utils.Ptr(testPlatformId),
-				ProjectId:  utils.Ptr(testProjectId),
-				QuotaId:    utils.Ptr(testQuotaId),
-				Region:     utils.Ptr(testRegion),
-				Status:     nil,
-				Suspended:  utils.Ptr(true),
-				UpdatedAt:  &createdTime,
+				CreatedAt:  createdTime,
+				Guid:       testOrgId,
+				Name:       "scf-full-org",
+				PlatformId: testPlatformId,
+				ProjectId:  testProjectId,
+				QuotaId:    testQuotaId,
+				Region:     testRegion,
+				Status:     "",
+				Suspended:  true,
+				UpdatedAt:  createdTime,
 			},
 			expected: &Model{
 				Id:         types.StringValue(fmt.Sprintf("%s,%s,%s", testProjectId, testRegion, testOrgId)),
@@ -81,7 +80,7 @@ func TestMapFields(t *testing.T) {
 				CreateAt:   types.StringValue("2025-01-01 00:00:00 +0000 UTC"),
 				UpdatedAt:  types.StringValue("2025-01-01 00:00:00 +0000 UTC"),
 				QuotaId:    types.StringValue(testQuotaId),
-				Status:     types.StringNull(),
+				Status:     types.StringValue(""),
 				Suspended:  types.BoolValue(true),
 			},
 			isValid: true,
@@ -91,20 +90,6 @@ func TestMapFields(t *testing.T) {
 			input:       nil,
 			expected:    nil,
 			isValid:     false,
-		},
-		{
-			description: "empty_org",
-			input:       &scf.Organization{},
-			expected:    nil,
-			isValid:     false,
-		},
-		{
-			description: "missing_id",
-			input: &scf.Organization{
-				Name: utils.Ptr("scf-missing-id"),
-			},
-			expected: nil,
-			isValid:  false,
 		},
 	}
 	for _, tt := range tests {
@@ -144,8 +129,8 @@ func TestToCreatePayload(t *testing.T) {
 				PlatformId: types.StringValue(testPlatformId),
 			},
 			expected: scf.CreateOrganizationPayload{
-				Name:       utils.Ptr("example-org"),
-				PlatformId: utils.Ptr(testPlatformId),
+				Name:       "example-org",
+				PlatformId: &testPlatformId,
 			},
 			expectError: false,
 		},

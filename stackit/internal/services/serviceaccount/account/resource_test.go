@@ -5,8 +5,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/serviceaccount"
+	serviceaccount "github.com/stackitcloud/stackit-sdk-go/services/serviceaccount/v2api"
 )
 
 func TestToCreatePayload(t *testing.T) {
@@ -22,7 +21,7 @@ func TestToCreatePayload(t *testing.T) {
 				Name: types.StringValue("example-name1"),
 			},
 			&serviceaccount.CreateServiceAccountPayload{
-				Name: utils.Ptr("example-name1"),
+				Name: "example-name1",
 			},
 			true,
 		},
@@ -62,9 +61,9 @@ func TestMapFields(t *testing.T) {
 		{
 			"default_values",
 			&serviceaccount.ServiceAccount{
-				Id:        utils.Ptr("550e8400-e29b-41d4-a716-446655440000"),
-				ProjectId: utils.Ptr("pid"),
-				Email:     utils.Ptr("mail"),
+				Id:        "550e8400-e29b-41d4-a716-446655440000",
+				ProjectId: "pid",
+				Email:     "mail",
 			},
 			Model{
 				Id:               types.StringValue("pid,mail"),
@@ -77,30 +76,6 @@ func TestMapFields(t *testing.T) {
 		{
 			"nil_response",
 			nil,
-			Model{},
-			false,
-		},
-		{
-			"nil_response_2",
-			&serviceaccount.ServiceAccount{},
-			Model{},
-			false,
-		},
-		{
-			"no_email",
-			&serviceaccount.ServiceAccount{
-				ProjectId: utils.Ptr("pid"),
-				Id:        utils.Ptr("550e8400-e29b-41d4-a716-446655440000"),
-			},
-			Model{},
-			false,
-		},
-		{
-			"no_id",
-			&serviceaccount.ServiceAccount{
-				ProjectId: utils.Ptr("pid"),
-				Email:     utils.Ptr("mail"),
-			},
 			Model{},
 			false,
 		},

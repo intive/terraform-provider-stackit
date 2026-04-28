@@ -5,8 +5,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/secretsmanager"
+	secretsmanager "github.com/stackitcloud/stackit-sdk-go/services/secretsmanager/v1api"
 )
 
 func TestMapDataSourceFields(t *testing.T) {
@@ -19,26 +18,26 @@ func TestMapDataSourceFields(t *testing.T) {
 		{
 			"default_values",
 			&secretsmanager.User{
-				Id: utils.Ptr("uid"),
+				Id: "uid",
 			},
 			DataSourceModel{
 				Id:           types.StringValue("pid,iid,uid"),
 				UserId:       types.StringValue("uid"),
 				InstanceId:   types.StringValue("iid"),
 				ProjectId:    types.StringValue("pid"),
-				Description:  types.StringNull(),
-				WriteEnabled: types.BoolNull(),
-				Username:     types.StringNull(),
+				Description:  types.StringValue(""),
+				WriteEnabled: types.BoolValue(false),
+				Username:     types.StringValue(""),
 			},
 			true,
 		},
 		{
 			"simple_values",
 			&secretsmanager.User{
-				Id:          utils.Ptr("uid"),
-				Description: utils.Ptr("description"),
-				Write:       utils.Ptr(false),
-				Username:    utils.Ptr("username"),
+				Id:          "uid",
+				Description: "description",
+				Write:       false,
+				Username:    "username",
 			},
 			DataSourceModel{
 				Id:           types.StringValue("pid,iid,uid"),

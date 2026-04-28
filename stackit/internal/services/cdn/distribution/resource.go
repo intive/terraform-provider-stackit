@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int32validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/objectvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -17,16 +20,20 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/stackitcloud/stackit-sdk-go/core/oapierror"
-	"github.com/stackitcloud/stackit-sdk-go/services/cdn"
-	"github.com/stackitcloud/stackit-sdk-go/services/cdn/wait"
+	sdkUtils "github.com/stackitcloud/stackit-sdk-go/core/utils"
+	cdnSdk "github.com/stackitcloud/stackit-sdk-go/services/cdn/v1api"
+	"github.com/stackitcloud/stackit-sdk-go/services/cdn/v1api/wait"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/conversion"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/features"
@@ -43,29 +50,38 @@ var (
 )
 
 var schemaDescriptions = map[string]string{
-	"id":                                    "Terraform's internal resource identifier. It is structured as \"`project_id`,`distribution_id`\".",
-	"distribution_id":                       "CDN distribution ID",
-	"project_id":                            "STACKIT project ID associated with the distribution",
-	"status":                                "Status of the distribution",
-	"created_at":                            "Time when the distribution was created",
-	"updated_at":                            "Time when the distribution was last updated",
-	"errors":                                "List of distribution errors",
-	"domains":                               "List of configured domains for the distribution",
-	"config":                                "The distribution configuration",
-	"config_backend":                        "The configured backend for the distribution",
-	"config_regions":                        "The configured regions where content will be hosted",
-	"config_backend_type":                   "The configured backend type. ",
-	"config_optimizer":                      "Configuration for the Image Optimizer. This is a paid feature that automatically optimizes images to reduce their file size for faster delivery, leading to improved website performance and a better user experience.",
-	"config_backend_origin_url":             "The configured backend type http for the distribution",
-	"config_backend_origin_request_headers": "The configured type http origin request headers for the backend",
-	"config_backend_geofencing":             "The configured type http to configure countries where content is allowed. A map of URLs to a list of countries",
-	"config_blocked_countries":              "The configured countries where distribution of content is blocked",
-	"domain_name":                           "The name of the domain",
-	"domain_status":                         "The status of the domain",
-	"domain_type":                           "The type of the domain. Each distribution has one domain of type \"managed\", and domains of type \"custom\" may be additionally created by the user",
-	"domain_errors":                         "List of domain errors",
-	"config_backend_bucket_url":             "The URL of the bucket (e.g. https://s3.example.com). Required if type is 'bucket'.",
-	"config_backend_region":                 "The region where the bucket is hosted. Required if type is 'bucket'.",
+	"id":                                           "Terraform's internal resource identifier. It is structured as \"`project_id`,`distribution_id`\".",
+	"distribution_id":                              "CDN distribution ID",
+	"project_id":                                   "STACKIT project ID associated with the distribution",
+	"status":                                       "Status of the distribution",
+	"created_at":                                   "Time when the distribution was created",
+	"updated_at":                                   "Time when the distribution was last updated",
+	"errors":                                       "List of distribution errors",
+	"domains":                                      "List of configured domains for the distribution",
+	"config":                                       "The distribution configuration",
+	"config_backend":                               "The configured backend for the distribution",
+	"config_regions":                               "The configured regions where content will be hosted",
+	"config_backend_type":                          "The configured backend type. ",
+	"config_optimizer":                             "Configuration for the Image Optimizer. This is a paid feature that automatically optimizes images to reduce their file size for faster delivery, leading to improved website performance and a better user experience.",
+	"config_backend_origin_url":                    "The configured backend type http for the distribution",
+	"config_backend_origin_request_headers":        "The configured type http origin request headers for the backend",
+	"config_backend_geofencing":                    "The configured type http to configure countries where content is allowed. A map of URLs to a list of countries",
+	"config_blocked_countries":                     "The configured countries where distribution of content is blocked",
+	"config_redirects":                             "A wrapper for a list of redirect rules that allows for redirect settings on a distribution",
+	"config_redirects_rules":                       "A list of redirect rules. The order of rules matters for evaluation",
+	"config_redirects_rule_description":            "An optional description for the redirect rule",
+	"config_redirects_rule_enabled":                "A toggle to enable or disable the redirect rule. Default to true",
+	"config_redirects_rule_target_url":             "The target URL to redirect to. Must be a valid URI",
+	"config_redirects_rule_status_code":            "The HTTP status code for the redirect. Must be one of 301, 302, 303, 307, or 308.",
+	"config_redirects_rule_matchers":               "A list of matchers that define when this rule should apply. At least one matcher is required",
+	"config_redirects_rule_matcher_values":         "A list of glob patterns to match against the request path. At least one value is required. Examples: \"/shop/*\" or \"*/img/*\"",
+	"config_redirects_rule_match_condition":        "Defines how multiple matchers within this rule are combined (ALL, ANY, NONE). Defaults to ANY.",
+	"domain_name":                                  "The name of the domain",
+	"domain_status":                                "The status of the domain",
+	"domain_type":                                  "The type of the domain. Each distribution has one domain of type \"managed\", and domains of type \"custom\" may be additionally created by the user",
+	"domain_errors":                                "List of domain errors",
+	"config_backend_bucket_url":                    "The URL of the bucket (e.g. https://s3.example.com). Required if type is 'bucket'.",
+	"config_backend_region":                        "The region where the bucket is hosted. Required if type is 'bucket'.",
 	"config_backend_credentials_access_key_id":     "The access key for the bucket. Required if type is 'bucket'.",
 	"config_backend_credentials_secret_access_key": "The secret key for the bucket. Required if type is 'bucket'.",
 	"config_backend_credentials":                   "The credentials for the bucket. Required if type is 'bucket'.",
@@ -83,11 +99,30 @@ type Model struct {
 	Config         types.Object `tfsdk:"config"`          // the configuration of the distribution
 }
 
+type matcher struct {
+	Values              []string `tfsdk:"values"`
+	ValueMatchCondition *string  `tfsdk:"value_match_condition"`
+}
+
+type redirectRule struct {
+	Description        *string   `tfsdk:"description"`
+	Enabled            *bool     `tfsdk:"enabled"`
+	TargetUrl          string    `tfsdk:"target_url"`
+	StatusCode         int32     `tfsdk:"status_code"`
+	Matchers           []matcher `tfsdk:"matchers"`
+	RuleMatchCondition *string   `tfsdk:"rule_match_condition"`
+}
+
+type redirectConfig struct {
+	Rules []redirectRule `tfsdk:"rules"`
+}
+
 type distributionConfig struct {
-	Backend          backend      `tfsdk:"backend"`           // The backend associated with the distribution
-	Regions          *[]string    `tfsdk:"regions"`           // The regions in which data will be cached
-	BlockedCountries *[]string    `tfsdk:"blocked_countries"` // The countries for which content will be blocked
-	Optimizer        types.Object `tfsdk:"optimizer"`         // The optimizer configuration
+	Backend          backend         `tfsdk:"backend"`           // The backend associated with the distribution
+	Redirects        *redirectConfig `tfsdk:"redirects"`         // A wrapper for a list of redirect rules that allows for redirect settings on a distribution
+	Regions          *[]string       `tfsdk:"regions"`           // The regions in which data will be cached
+	BlockedCountries *[]string       `tfsdk:"blocked_countries"` // The countries for which content will be blocked
+	Optimizer        types.Object    `tfsdk:"optimizer"`         // The optimizer configuration
 }
 
 type optimizerConfig struct {
@@ -95,7 +130,7 @@ type optimizerConfig struct {
 }
 
 type backend struct {
-	Type                 string                `tfsdk:"type"`                   // The type of the backend. Currently, only "http" backend is supported
+	Type                 string                `tfsdk:"type"`                   // The type of the backend. Currently, only "http" and "bucket" backend is supported
 	OriginURL            *string               `tfsdk:"origin_url"`             // The origin URL of the backend
 	OriginRequestHeaders *map[string]string    `tfsdk:"origin_request_headers"` // Request headers that should be added by the CDN distribution to incoming requests
 	Geofencing           *map[string][]*string `tfsdk:"geofencing"`             // The geofencing is an object mapping multiple alternative origins to country codes.
@@ -116,6 +151,9 @@ var configTypes = map[string]attr.Type{
 	"optimizer": types.ObjectType{
 		AttrTypes: optimizerTypes,
 	},
+	"redirects": types.ObjectType{
+		AttrTypes: redirectsTypes,
+	},
 }
 
 var optimizerTypes = map[string]attr.Type{
@@ -125,6 +163,32 @@ var optimizerTypes = map[string]attr.Type{
 var geofencingTypes = types.MapType{ElemType: types.ListType{
 	ElemType: types.StringType,
 }}
+
+var matcherTypes = map[string]attr.Type{
+	"values":                types.ListType{ElemType: types.StringType},
+	"value_match_condition": types.StringType,
+}
+
+var redirectRuleTypes = map[string]attr.Type{
+	"description":          types.StringType,
+	"enabled":              types.BoolType,
+	"target_url":           types.StringType,
+	"status_code":          types.Int32Type,
+	"rule_match_condition": types.StringType,
+	"matchers": types.ListType{
+		ElemType: types.ObjectType{
+			AttrTypes: matcherTypes,
+		},
+	},
+}
+
+var redirectsTypes = map[string]attr.Type{
+	"rules": types.ListType{
+		ElemType: types.ObjectType{
+			AttrTypes: redirectRuleTypes,
+		},
+	},
+}
 
 var backendTypes = map[string]attr.Type{
 	"type":                   types.StringType,
@@ -149,7 +213,7 @@ var domainTypes = map[string]attr.Type{
 }
 
 type distributionResource struct {
-	client       *cdn.APIClient
+	client       *cdnSdk.APIClient
 	providerData core.ProviderData
 }
 
@@ -183,6 +247,7 @@ func (r *distributionResource) Metadata(_ context.Context, req resource.Metadata
 
 func (r *distributionResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	backendOptions := []string{"http", "bucket"}
+	statusCode := []int32{301, 302, 303, 307, 308}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: features.AddBetaDescription("CDN distribution data source schema.", core.Resource),
 		Description:         "CDN distribution data source schema.",
@@ -265,6 +330,77 @@ func (r *distributionResource) Schema(_ context.Context, _ resource.SchemaReques
 						},
 						Validators: []validator.Object{
 							objectvalidator.AlsoRequires(path.MatchRelative().AtName("enabled")),
+						},
+					},
+					"redirects": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: schemaDescriptions["config_redirects"],
+						Attributes: map[string]schema.Attribute{
+							"rules": schema.ListNestedAttribute{
+								Description: schemaDescriptions["config_redirects_rules"],
+								Required:    true,
+								Validators: []validator.List{
+									listvalidator.SizeAtLeast(1),
+								},
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"description": schema.StringAttribute{
+											Description: schemaDescriptions["config_redirects_rule_description"],
+											Optional:    true,
+											Computed:    true,
+											Default:     stringdefault.StaticString(""),
+										},
+										"enabled": schema.BoolAttribute{
+											Optional:    true,
+											Computed:    true,
+											Description: schemaDescriptions["config_redirects_rule_enabled"],
+											Default:     booldefault.StaticBool(true),
+										},
+										"target_url": schema.StringAttribute{
+											Required:    true,
+											Description: schemaDescriptions["config_redirects_rule_target_url"],
+										},
+										"status_code": schema.Int32Attribute{
+											Required:    true,
+											Description: schemaDescriptions["config_redirects_rule_status_code"],
+											Validators:  []validator.Int32{int32validator.OneOf(statusCode...)},
+										},
+										"rule_match_condition": schema.StringAttribute{
+											Optional:    true,
+											Computed:    true,
+											Description: schemaDescriptions["config_redirects_rule_match_condition"],
+											Default:     stringdefault.StaticString("ANY"),
+											Validators:  []validator.String{stringvalidator.OneOf(sdkUtils.EnumSliceToStringSlice(cdnSdk.AllowedMatchConditionEnumValues)...)},
+										},
+										"matchers": schema.ListNestedAttribute{
+											Description: schemaDescriptions["config_redirects_rule_matchers"],
+											Required:    true,
+											Validators: []validator.List{
+												listvalidator.SizeAtLeast(1),
+											},
+											NestedObject: schema.NestedAttributeObject{
+												Attributes: map[string]schema.Attribute{
+													"values": schema.ListAttribute{
+														Description: schemaDescriptions["config_redirects_rule_matcher_values"],
+														Required:    true,
+														ElementType: types.StringType,
+														Validators: []validator.List{
+															listvalidator.SizeAtLeast(1),
+															listvalidator.NoNullValues(),
+														},
+													},
+													"value_match_condition": schema.StringAttribute{
+														Optional:    true,
+														Description: schemaDescriptions["config_redirects_rule_match_condition"],
+														Default:     stringdefault.StaticString("ANY"),
+														Computed:    true,
+														Validators:  []validator.String{stringvalidator.OneOf(sdkUtils.EnumSliceToStringSlice(cdnSdk.AllowedMatchConditionEnumValues)...)},
+													},
+												},
+											},
+										}},
+								},
+							},
 						},
 					},
 					"backend": schema.SingleNestedAttribute{
@@ -425,7 +561,7 @@ func (r *distributionResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	createResp, err := r.client.CreateDistribution(ctx, projectId).CreateDistributionPayload(*payload).Execute()
+	createResp, err := r.client.DefaultAPI.CreateDistribution(ctx, projectId).CreateDistributionPayload(*payload).Execute()
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error creating CDN distribution", fmt.Sprintf("Calling API: %v", err))
 		return
@@ -433,7 +569,7 @@ func (r *distributionResource) Create(ctx context.Context, req resource.CreateRe
 
 	ctx = core.LogResponse(ctx)
 
-	if createResp.Distribution.Id == nil {
+	if createResp.Distribution.Id == "" {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error creating CDN distribution", "Got empty cdn distribution id")
 		return
 	}
@@ -441,19 +577,19 @@ func (r *distributionResource) Create(ctx context.Context, req resource.CreateRe
 	// Write id attributes to state before polling via the wait handler - just in case anything goes wrong during the wait handler
 	ctx = utils.SetAndLogStateFields(ctx, &resp.Diagnostics, &resp.State, map[string]any{
 		"project_id":      projectId,
-		"distribution_id": *createResp.Distribution.Id,
+		"distribution_id": createResp.Distribution.Id,
 	})
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	waitResp, err := wait.CreateDistributionPoolWaitHandler(ctx, r.client, projectId, *createResp.Distribution.Id).SetTimeout(5 * time.Minute).WaitWithContext(ctx)
+	waitResp, err := wait.CreateDistributionPoolWaitHandler(ctx, r.client.DefaultAPI, projectId, createResp.Distribution.Id).SetTimeout(5 * time.Minute).WaitWithContext(ctx)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error creating CDN distribution", fmt.Sprintf("Waiting for create: %v", err))
 		return
 	}
 
-	err = mapFields(ctx, waitResp.Distribution, &model)
+	err = mapFields(ctx, &waitResp.Distribution, &model)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error creating CDN distribution", fmt.Sprintf("Processing API payload: %v", err))
 		return
@@ -479,10 +615,15 @@ func (r *distributionResource) Read(ctx context.Context, req resource.ReadReques
 
 	projectId := model.ProjectId.ValueString()
 	distributionId := model.DistributionId.ValueString()
+	if distributionId == "" {
+		// Resource not yet created; ID is unknown.
+		resp.State.RemoveResource(ctx)
+		return
+	}
 	ctx = tflog.SetField(ctx, "project_id", projectId)
 	ctx = tflog.SetField(ctx, "distribution_id", distributionId)
 
-	cdnResp, err := r.client.GetDistribution(ctx, projectId, distributionId).Execute()
+	cdnResp, err := r.client.DefaultAPI.GetDistribution(ctx, projectId, distributionId).Execute()
 	if err != nil {
 		var oapiErr *oapierror.GenericOpenAPIError
 		// n.b. err is caught here if of type *oapierror.GenericOpenAPIError, which the stackit SDK client returns
@@ -498,7 +639,7 @@ func (r *distributionResource) Read(ctx context.Context, req resource.ReadReques
 
 	ctx = core.LogResponse(ctx)
 
-	err = mapFields(ctx, cdnResp.Distribution, &model)
+	err = mapFields(ctx, &cdnResp.Distribution, &model)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error reading CDN ditribution", fmt.Sprintf("Processing API payload: %v", err))
 		return
@@ -537,9 +678,9 @@ func (r *distributionResource) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
-	regions := []cdn.Region{}
+	regions := []cdnSdk.Region{}
 	for _, r := range *configModel.Regions {
-		regionEnum, err := cdn.NewRegionFromValue(r)
+		regionEnum, err := cdnSdk.NewRegionFromValue(r)
 		if err != nil {
 			core.LogAndAddError(ctx, &resp.Diagnostics, "Update CDN distribution", fmt.Sprintf("Map regions: %v", err))
 			return
@@ -549,7 +690,7 @@ func (r *distributionResource) Update(ctx context.Context, req resource.UpdateRe
 
 	// blockedCountries
 	// Use a pointer to a slice to distinguish between an empty list (unblock all) and nil (no change).
-	var blockedCountries *[]string
+	var blockedCountries []string
 	if configModel.BlockedCountries != nil {
 		// Use a temporary slice
 		tempBlockedCountries := []string{}
@@ -564,12 +705,16 @@ func (r *distributionResource) Update(ctx context.Context, req resource.UpdateRe
 		}
 
 		// Point to the populated slice
-		blockedCountries = &tempBlockedCountries
+		blockedCountries = tempBlockedCountries
 	}
 
-	configPatchBackend := &cdn.ConfigPatchBackend{}
+	// redirects
+	redirectsConfig := convertRedirectconfig(configModel.Redirects)
 
-	if configModel.Backend.Type == "http" {
+	configPatchBackend := &cdnSdk.ConfigPatchBackend{}
+
+	switch configModel.Backend.Type {
+	case "http":
 		geofencingPatch := map[string][]string{}
 		if configModel.Backend.Geofencing != nil {
 			gf := make(map[string][]string)
@@ -587,30 +732,31 @@ func (r *distributionResource) Update(ctx context.Context, req resource.UpdateRe
 			geofencingPatch = gf
 		}
 
-		configPatchBackend.HttpBackendPatch = &cdn.HttpBackendPatch{
+		configPatchBackend.HttpBackendPatch = &cdnSdk.HttpBackendPatch{
 			OriginRequestHeaders: configModel.Backend.OriginRequestHeaders,
 			OriginUrl:            configModel.Backend.OriginURL,
-			Type:                 cdn.PtrString("http"),
+			Type:                 "http",
 			Geofencing:           &geofencingPatch,
 		}
-	} else if configModel.Backend.Type == "bucket" {
-		configPatchBackend.BucketBackendPatch = &cdn.BucketBackendPatch{
-			Type:      cdn.PtrString("bucket"),
+	case "bucket":
+		configPatchBackend.BucketBackendPatch = &cdnSdk.BucketBackendPatch{
+			Type:      "bucket",
 			BucketUrl: configModel.Backend.BucketURL,
 			Region:    configModel.Backend.Region,
 		}
 		if configModel.Backend.Credentials != nil {
-			configPatchBackend.BucketBackendPatch.Credentials = &cdn.BucketCredentials{
-				AccessKeyId:     configModel.Backend.Credentials.AccessKey,
-				SecretAccessKey: configModel.Backend.Credentials.SecretKey,
+			configPatchBackend.BucketBackendPatch.Credentials = &cdnSdk.BucketCredentials{
+				AccessKeyId:     *configModel.Backend.Credentials.AccessKey,
+				SecretAccessKey: *configModel.Backend.Credentials.SecretKey,
 			}
 		}
 	}
 
-	configPatch := &cdn.ConfigPatch{
+	configPatch := &cdnSdk.ConfigPatch{
 		Backend:          configPatchBackend,
-		Regions:          &regions,
+		Regions:          regions,
 		BlockedCountries: blockedCountries,
+		Redirects:        redirectsConfig,
 	}
 
 	if !utils.IsUndefined(configModel.Optimizer) {
@@ -622,16 +768,16 @@ func (r *distributionResource) Update(ctx context.Context, req resource.UpdateRe
 			return
 		}
 
-		optimizer := cdn.NewOptimizerPatch()
+		optimizer := cdnSdk.NewOptimizerPatch()
 		if !utils.IsUndefined(optimizerModel.Enabled) {
 			optimizer.SetEnabled(optimizerModel.Enabled.ValueBool())
 		}
 		configPatch.Optimizer = optimizer
 	}
 
-	_, err := r.client.PatchDistribution(ctx, projectId, distributionId).PatchDistributionPayload(cdn.PatchDistributionPayload{
+	_, err := r.client.DefaultAPI.PatchDistribution(ctx, projectId, distributionId).PatchDistributionPayload(cdnSdk.PatchDistributionPayload{
 		Config:   configPatch,
-		IntentId: cdn.PtrString(uuid.NewString()),
+		IntentId: new(uuid.NewString()),
 	}).Execute()
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Update CDN distribution", fmt.Sprintf("Patch distribution: %v", err))
@@ -640,13 +786,13 @@ func (r *distributionResource) Update(ctx context.Context, req resource.UpdateRe
 
 	ctx = core.LogResponse(ctx)
 
-	waitResp, err := wait.UpdateDistributionWaitHandler(ctx, r.client, projectId, distributionId).WaitWithContext(ctx)
+	waitResp, err := wait.UpdateDistributionWaitHandler(ctx, r.client.DefaultAPI, projectId, distributionId).WaitWithContext(ctx)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Update CDN distribution", fmt.Sprintf("Waiting for update: %v", err))
 		return
 	}
 
-	err = mapFields(ctx, waitResp.Distribution, &model)
+	err = mapFields(ctx, &waitResp.Distribution, &model)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Update CDN distribution", fmt.Sprintf("Processing API payload: %v", err))
 		return
@@ -675,14 +821,14 @@ func (r *distributionResource) Delete(ctx context.Context, req resource.DeleteRe
 	ctx = tflog.SetField(ctx, "project_id", projectId)
 	ctx = tflog.SetField(ctx, "distribution_id", distributionId)
 
-	_, err := r.client.DeleteDistribution(ctx, projectId, distributionId).Execute()
+	_, err := r.client.DefaultAPI.DeleteDistribution(ctx, projectId, distributionId).Execute()
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Delete CDN distribution", fmt.Sprintf("Delete distribution: %v", err))
 	}
 
 	ctx = core.LogResponse(ctx)
 
-	_, err = wait.DeleteDistributionWaitHandler(ctx, r.client, projectId, distributionId).WaitWithContext(ctx)
+	_, err = wait.DeleteDistributionWaitHandler(ctx, r.client.DefaultAPI, projectId, distributionId).WaitWithContext(ctx)
 	if err != nil {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Delete CDN distribution", fmt.Sprintf("Waiting for deletion: %v", err))
 		return
@@ -696,14 +842,14 @@ func (r *distributionResource) ImportState(ctx context.Context, req resource.Imp
 	if len(idParts) != 2 || idParts[0] == "" || idParts[1] == "" {
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error importing CDN distribution", fmt.Sprintf("Expected import identifier on the format: [project_id]%q[distribution_id], got %q", core.Separator, req.ID))
 	}
-	ctx = utils.SetAndLogStateFields(ctx, &resp.Diagnostics, &resp.State, map[string]interface{}{
+	ctx = utils.SetAndLogStateFields(ctx, &resp.Diagnostics, &resp.State, map[string]any{
 		"project_id":      idParts[0],
 		"distribution_id": idParts[1],
 	})
 	tflog.Info(ctx, "CDN distribution state imported")
 }
 
-func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model) error {
+func mapFields(ctx context.Context, distribution *cdnSdk.Distribution, model *Model) error {
 	if distribution == nil {
 		return fmt.Errorf("response input is nil")
 	}
@@ -711,29 +857,21 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 		return fmt.Errorf("model input is nil")
 	}
 
-	if distribution.ProjectId == nil {
-		return fmt.Errorf("Project ID not present")
+	if distribution.ProjectId == "" {
+		return fmt.Errorf("'Project ID' not present")
 	}
 
-	if distribution.Id == nil {
+	if distribution.Id == "" {
 		return fmt.Errorf("CDN distribution ID not present")
 	}
 
-	if distribution.CreatedAt == nil {
-		return fmt.Errorf("CreatedAt missing in response")
+	if distribution.Status == "" {
+		return fmt.Errorf("'Status' missing in response")
 	}
 
-	if distribution.UpdatedAt == nil {
-		return fmt.Errorf("UpdatedAt missing in response")
-	}
-
-	if distribution.Status == nil {
-		return fmt.Errorf("Status missing in response")
-	}
-
-	model.ID = utils.BuildInternalTerraformId(*distribution.ProjectId, *distribution.Id)
-	model.DistributionId = types.StringValue(*distribution.Id)
-	model.ProjectId = types.StringValue(*distribution.ProjectId)
+	model.ID = utils.BuildInternalTerraformId(distribution.ProjectId, distribution.Id)
+	model.DistributionId = types.StringValue(distribution.Id)
+	model.ProjectId = types.StringValue(distribution.ProjectId)
 	model.Status = types.StringValue(string(distribution.GetStatus()))
 	model.CreatedAt = types.StringValue(distribution.CreatedAt.String())
 	model.UpdatedAt = types.StringValue(distribution.UpdatedAt.String())
@@ -741,8 +879,8 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 	// distributionErrors
 	distributionErrors := []attr.Value{}
 	if distribution.Errors != nil {
-		for _, e := range *distribution.Errors {
-			distributionErrors = append(distributionErrors, types.StringValue(*e.En))
+		for _, e := range distribution.Errors {
+			distributionErrors = append(distributionErrors, types.StringValue(e.En))
 		}
 	}
 	modelErrors, diags := types.ListValue(types.StringType, distributionErrors)
@@ -753,7 +891,7 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 
 	// regions
 	regions := []attr.Value{}
-	for _, r := range *distribution.Config.Regions {
+	for _, r := range distribution.Config.Regions {
 		regions = append(regions, types.StringValue(string(r)))
 	}
 	modelRegions, diags := types.ListValue(types.StringType, regions)
@@ -773,10 +911,97 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 		}
 	}
 
+	// redirects
+	redirectsVal := types.ObjectNull(redirectsTypes)
+	if distribution.Config.Redirects != nil && distribution.Config.Redirects.Rules != nil {
+		var tfRules []attr.Value
+		for _, r := range distribution.Config.Redirects.Rules {
+			var tfMatchers []attr.Value
+			if r.Matchers != nil {
+				for _, m := range r.Matchers {
+					tfValuesList, diags := types.ListValueFrom(ctx, types.StringType, m.Values)
+					if diags.HasError() {
+						return core.DiagsToError(diags)
+					}
+
+					tfValMatchCond := types.StringValue("ANY")
+					if m.ValueMatchCondition != nil {
+						tfValMatchCond = types.StringValue(string(*m.ValueMatchCondition))
+					}
+
+					tfMatcherObj, diags := types.ObjectValue(matcherTypes, map[string]attr.Value{
+						"values":                tfValuesList,
+						"value_match_condition": tfValMatchCond,
+					})
+					if diags.HasError() {
+						return core.DiagsToError(diags)
+					}
+					tfMatchers = append(tfMatchers, tfMatcherObj)
+				}
+			}
+
+			tfMatchersList, diags := types.ListValue(types.ObjectType{AttrTypes: matcherTypes}, tfMatchers)
+			if diags.HasError() {
+				return core.DiagsToError(diags)
+			}
+
+			tfDesc := types.StringValue("")
+			if r.Description != nil {
+				tfDesc = types.StringValue(*r.Description)
+			}
+
+			tfEnabled := types.BoolValue(true)
+			if r.Enabled != nil {
+				tfEnabled = types.BoolValue(*r.Enabled)
+			}
+
+			tfTargetUrl := types.StringNull()
+			if r.TargetUrl != "" {
+				tfTargetUrl = types.StringValue(r.TargetUrl)
+			}
+
+			tfStatusCode := types.Int32Null()
+			if r.StatusCode > 0 {
+				tfStatusCode = types.Int32Value(r.StatusCode)
+			}
+
+			tfRuleMatchCond := types.StringValue("ANY")
+			if r.RuleMatchCondition != nil {
+				tfRuleMatchCond = types.StringValue(string(*r.RuleMatchCondition))
+			}
+
+			tfRuleObj, diags := types.ObjectValue(redirectRuleTypes, map[string]attr.Value{
+				"description":          tfDesc,
+				"enabled":              tfEnabled,
+				"target_url":           tfTargetUrl,
+				"status_code":          tfStatusCode,
+				"rule_match_condition": tfRuleMatchCond,
+				"matchers":             tfMatchersList,
+			})
+			if diags.HasError() {
+				return core.DiagsToError(diags)
+			}
+			tfRules = append(tfRules, tfRuleObj)
+		}
+
+		tfRulesList, diags := types.ListValue(types.ObjectType{AttrTypes: redirectRuleTypes}, tfRules)
+		if diags.HasError() {
+			return core.DiagsToError(diags)
+		}
+
+		var objDiags diag.Diagnostics
+		redirectsVal, objDiags = types.ObjectValue(redirectsTypes, map[string]attr.Value{
+			"rules": tfRulesList,
+		})
+		if objDiags.HasError() {
+			return core.DiagsToError(objDiags)
+		}
+	}
+
 	// blockedCountries
 	var blockedCountries []attr.Value
-	if distribution.Config != nil && distribution.Config.BlockedCountries != nil {
-		for _, c := range *distribution.Config.BlockedCountries {
+	if distribution.Config.BlockedCountries != nil {
+		for _, c := range distribution.Config.BlockedCountries {
 			blockedCountries = append(blockedCountries, types.StringValue(string(c)))
 		}
 	}
@@ -789,9 +1014,9 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 	// originRequestHeaders
 	originRequestHeaders := types.MapNull(types.StringType)
 	if distribution.Config.Backend.HttpBackend != nil {
-		if origHeaders := distribution.Config.Backend.HttpBackend.OriginRequestHeaders; origHeaders != nil && len(*origHeaders) > 0 {
+		if origHeaders := distribution.Config.Backend.HttpBackend.OriginRequestHeaders; len(origHeaders) > 0 {
 			headers := map[string]attr.Value{}
-			for k, v := range *origHeaders {
+			for k, v := range origHeaders {
 				headers[k] = types.StringValue(v)
 			}
 			mappedHeaders, diags := types.MapValue(types.StringType, headers)
@@ -810,8 +1035,8 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 
 	reconciledGeofencingData := make(map[string][]string)
 	if distribution.Config.Backend.HttpBackend != nil {
-		if geofencingAPI := distribution.Config.Backend.HttpBackend.Geofencing; geofencingAPI != nil && len(*geofencingAPI) > 0 {
-			newGeofencingMap := *geofencingAPI
+		if geofencingAPI := distribution.Config.Backend.HttpBackend.Geofencing; len(geofencingAPI) > 0 {
+			newGeofencingMap := geofencingAPI
 			for url, newCountries := range newGeofencingMap {
 				oldCountriesPtrs := oldGeofencingMap[url]
 
@@ -847,7 +1072,7 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 	if distribution.Config.Backend.HttpBackend != nil {
 		backendValues = map[string]attr.Value{
 			"type":                   types.StringValue("http"),
-			"origin_url":             types.StringValue(*distribution.Config.Backend.HttpBackend.OriginUrl),
+			"origin_url":             types.StringValue(distribution.Config.Backend.HttpBackend.OriginUrl),
 			"origin_request_headers": originRequestHeaders,
 			"geofencing":             geofencingVal,
 			// bucket fields must be null when using HTTP
@@ -876,8 +1101,8 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 
 		backendValues = map[string]attr.Value{
 			"type":        types.StringValue("bucket"),
-			"bucket_url":  types.StringValue(*distribution.Config.Backend.BucketBackend.BucketUrl),
-			"region":      types.StringValue(*distribution.Config.Backend.BucketBackend.Region),
+			"bucket_url":  types.StringValue(distribution.Config.Backend.BucketBackend.BucketUrl),
+			"region":      types.StringValue(distribution.Config.Backend.BucketBackend.Region),
 			"credentials": credentialsObj,
 			// HTTP field must be null when using Bucket
 			"origin_url":             types.StringNull(),
@@ -898,7 +1123,7 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 		if ok {
 			var diags diag.Diagnostics
 			optimizerVal, diags = types.ObjectValue(optimizerTypes, map[string]attr.Value{
-				"enabled": types.BoolValue(optimizerEnabled),
+				"enabled": types.BoolPointerValue(optimizerEnabled),
 			})
 			if diags.HasError() {
 				return core.DiagsToError(diags)
@@ -910,6 +1135,7 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 		"regions":           modelRegions,
 		"blocked_countries": modelBlockedCountries,
 		"optimizer":         optimizerVal,
+		"redirects":         redirectsVal,
 	})
 	if diags.HasError() {
 		return core.DiagsToError(diags)
@@ -918,27 +1144,27 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 
 	domains := []attr.Value{}
 	if distribution.Domains != nil {
-		for _, d := range *distribution.Domains {
+		for _, d := range distribution.Domains {
 			domainErrors := []attr.Value{}
 			if d.Errors != nil {
-				for _, e := range *d.Errors {
-					if e.En == nil {
+				for _, e := range d.Errors {
+					if e.En == "" {
 						return fmt.Errorf("error description missing")
 					}
-					domainErrors = append(domainErrors, types.StringValue(*e.En))
+					domainErrors = append(domainErrors, types.StringValue(e.En))
 				}
 			}
 			modelDomainErrors, diags := types.ListValue(types.StringType, domainErrors)
 			if diags.HasError() {
 				return core.DiagsToError(diags)
 			}
-			if d.Name == nil || d.Status == nil || d.Type == nil {
+			if d.Name == "" || d.Status == "" || d.Type == "" {
 				return fmt.Errorf("domain entry incomplete")
 			}
 			modelDomain, diags := types.ObjectValue(domainTypes, map[string]attr.Value{
-				"name":   types.StringValue(*d.Name),
-				"status": types.StringValue(string(*d.Status)),
-				"type":   types.StringValue(string(*d.Type)),
+				"name":   types.StringValue(d.Name),
+				"status": types.StringValue(string(d.Status)),
+				"type":   types.StringValue(string(d.Type)),
 				"errors": modelDomainErrors,
 			})
 			if diags.HasError() {
@@ -957,7 +1183,7 @@ func mapFields(ctx context.Context, distribution *cdn.Distribution, model *Model
 	return nil
 }
 
-func toCreatePayload(ctx context.Context, model *Model) (*cdn.CreateDistributionPayload, error) {
+func toCreatePayload(ctx context.Context, model *Model) (*cdnSdk.CreateDistributionPayload, error) {
 	if model == nil {
 		return nil, fmt.Errorf("missing model")
 	}
@@ -965,18 +1191,18 @@ func toCreatePayload(ctx context.Context, model *Model) (*cdn.CreateDistribution
 	if err != nil {
 		return nil, err
 	}
-	var optimizer *cdn.Optimizer
+	var optimizer *cdnSdk.Optimizer
 	if cfg.Optimizer != nil {
-		optimizer = cdn.NewOptimizer(cfg.Optimizer.GetEnabled())
+		optimizer = cdnSdk.NewOptimizer(cfg.Optimizer.GetEnabled())
 	}
-	var backend *cdn.CreateDistributionPayloadBackend
+	var backend *cdnSdk.CreateDistributionPayloadBackend
 	if cfg.Backend.HttpBackend != nil {
-		backend = &cdn.CreateDistributionPayloadBackend{
-			HttpBackendCreate: &cdn.HttpBackendCreate{
+		backend = &cdnSdk.CreateDistributionPayloadBackend{
+			HttpBackendCreate: &cdnSdk.HttpBackendCreate{
 				OriginUrl:            cfg.Backend.HttpBackend.OriginUrl,
-				OriginRequestHeaders: cfg.Backend.HttpBackend.OriginRequestHeaders,
-				Geofencing:           cfg.Backend.HttpBackend.Geofencing,
-				Type:                 cdn.PtrString("http"),
+				OriginRequestHeaders: &cfg.Backend.HttpBackend.OriginRequestHeaders,
+				Geofencing:           &cfg.Backend.HttpBackend.Geofencing,
+				Type:                 "http",
 			},
 		}
 	} else if cfg.Backend.BucketBackend != nil {
@@ -995,34 +1221,79 @@ func toCreatePayload(ctx context.Context, model *Model) (*cdn.CreateDistribution
 			accessKey = rawConfig.Backend.Credentials.AccessKey
 			secretKey = rawConfig.Backend.Credentials.SecretKey
 		}
-		backend = &cdn.CreateDistributionPayloadBackend{
-			BucketBackendCreate: &cdn.BucketBackendCreate{
-				Type:      cdn.PtrString("bucket"),
+		backend = &cdnSdk.CreateDistributionPayloadBackend{
+			BucketBackendCreate: &cdnSdk.BucketBackendCreate{
+				Type:      "bucket",
 				BucketUrl: cfg.Backend.BucketBackend.BucketUrl,
 				Region:    cfg.Backend.BucketBackend.Region,
-				Credentials: &cdn.BucketCredentials{
-					AccessKeyId:     accessKey,
-					SecretAccessKey: secretKey,
+				Credentials: cdnSdk.BucketCredentials{
+					AccessKeyId:     *accessKey,
+					SecretAccessKey: *secretKey,
 				},
 			},
 		}
 	}
-
-	payload := &cdn.CreateDistributionPayload{
-		IntentId:         cdn.PtrString(uuid.NewString()),
+	payload := &cdnSdk.CreateDistributionPayload{
+		IntentId:         new(uuid.NewString()),
 		Regions:          cfg.Regions,
-		Backend:          backend,
+		Backend:          *backend,
 		BlockedCountries: cfg.BlockedCountries,
 		Optimizer:        optimizer,
+		Redirects:        cfg.Redirects,
 	}
 
 	return payload, nil
 }
 
-func convertConfig(ctx context.Context, model *Model) (*cdn.Config, error) {
+func convertRedirectconfig(redirectConfigModel *redirectConfig) *cdnSdk.RedirectConfig {
+	var redirectsConfig *cdnSdk.RedirectConfig
+	if redirectConfigModel != nil {
+		sdkRules := []cdnSdk.RedirectRule{}
+		if len(redirectConfigModel.Rules) > 0 {
+			for _, rule := range redirectConfigModel.Rules {
+				matchers := []cdnSdk.Matcher{}
+				for _, matcher := range rule.Matchers {
+					var matchCond *cdnSdk.MatchCondition
+					if matcher.ValueMatchCondition != nil {
+						cond := cdnSdk.MatchCondition(*matcher.ValueMatchCondition)
+						matchCond = &cond
+					}
+
+					matchers = append(matchers, cdnSdk.Matcher{
+						Values:              matcher.Values,
+						ValueMatchCondition: matchCond,
+					})
+				}
+
+				var ruleMatchCond *cdnSdk.MatchCondition
+				if rule.RuleMatchCondition != nil {
+					ruleMatchCond = new(cdnSdk.MatchCondition(*rule.RuleMatchCondition))
+				}
+				targetUrl := rule.TargetUrl
+
+				sdkConfigRule := cdnSdk.RedirectRule{
+					Description:        rule.Description,
+					Enabled:            rule.Enabled,
+					Matchers:           matchers,
+					RuleMatchCondition: ruleMatchCond,
+					StatusCode:         rule.StatusCode,
+					TargetUrl:          targetUrl,
+				}
+				sdkRules = append(sdkRules, sdkConfigRule)
+			}
+		}
+		redirectsConfig = &cdnSdk.RedirectConfig{
+			Rules: sdkRules,
+		}
+	}
+	return redirectsConfig
+}
+
+func convertConfig(ctx context.Context, model *Model) (*cdnSdk.Config, error) {
 	if model == nil {
 		return nil, errors.New("model cannot be nil")
 	}
+
 	if model.Config.IsNull() || model.Config.IsUnknown() {
 		return nil, errors.New("config cannot be nil or unknown")
 	}
@@ -1036,9 +1307,9 @@ func convertConfig(ctx context.Context, model *Model) (*cdn.Config, error) {
 	}
 
 	// regions
-	regions := []cdn.Region{}
+	regions := []cdnSdk.Region{}
 	for _, r := range *configModel.Regions {
-		regionEnum, err := cdn.NewRegionFromValue(r)
+		regionEnum, err := cdnSdk.NewRegionFromValue(r)
 		if err != nil {
 			return nil, err
 		}
@@ -1054,6 +1325,49 @@ func convertConfig(ctx context.Context, model *Model) (*cdn.Config, error) {
 				return nil, err
 			}
 			blockedCountries = append(blockedCountries, validatedBlockedCountry)
+		}
+	}
+
+	// redirects
+	redirectsConfig := convertRedirectconfig(configModel.Redirects)
+
+	if configModel.Redirects != nil {
+		sdkRules := []cdnSdk.RedirectRule{}
+
+		if len(configModel.Redirects.Rules) > 0 {
+			for _, rule := range configModel.Redirects.Rules {
+				matchers := []cdnSdk.Matcher{}
+				for _, matcher := range rule.Matchers {
+					var matchCond *cdnSdk.MatchCondition
+					if matcher.ValueMatchCondition != nil {
+						cond := cdnSdk.MatchCondition(*matcher.ValueMatchCondition)
+						matchCond = &cond
+					}
+
+					matchers = append(matchers, cdnSdk.Matcher{
+						Values:              matcher.Values,
+						ValueMatchCondition: matchCond,
+					})
+				}
+
+				var ruleMatchCond *cdnSdk.MatchCondition
+				if rule.RuleMatchCondition != nil {
+					ruleMatchCond = new(cdnSdk.MatchCondition(*rule.RuleMatchCondition))
+				}
+
+				sdkConfigRule := cdnSdk.RedirectRule{
+					Description:        rule.Description,
+					Enabled:            rule.Enabled,
+					Matchers:           matchers,
+					RuleMatchCondition: ruleMatchCond,
+					StatusCode:         rule.StatusCode,
+					TargetUrl:          rule.TargetUrl,
+				}
+				sdkRules = append(sdkRules, sdkConfigRule)
+			}
+		}
+		redirectsConfig = &cdnSdk.RedirectConfig{
+			Rules: sdkRules,
 		}
 	}
 
@@ -1076,30 +1390,30 @@ func convertConfig(ctx context.Context, model *Model) (*cdn.Config, error) {
 		}
 	}
 
-	cdnConfig := &cdn.Config{
-		Backend:          &cdn.ConfigBackend{},
-		Regions:          &regions,
-		BlockedCountries: &blockedCountries,
+	cdnConfig := &cdnSdk.Config{
+		Backend:          cdnSdk.ConfigBackend{},
+		Regions:          regions,
+		BlockedCountries: blockedCountries,
+		Redirects:        redirectsConfig,
 	}
 
-	if configModel.Backend.Type == "http" {
+	switch configModel.Backend.Type {
+	case "http":
 		originRequestHeaders := map[string]string{}
 		if configModel.Backend.OriginRequestHeaders != nil {
-			for k, v := range *configModel.Backend.OriginRequestHeaders {
-				originRequestHeaders[k] = v
-			}
+			maps.Copy(originRequestHeaders, *configModel.Backend.OriginRequestHeaders)
 		}
-		cdnConfig.Backend.HttpBackend = &cdn.HttpBackend{
-			OriginRequestHeaders: &originRequestHeaders,
-			OriginUrl:            configModel.Backend.OriginURL,
-			Type:                 cdn.PtrString("http"),
-			Geofencing:           &geofencing,
+		cdnConfig.Backend.HttpBackend = &cdnSdk.HttpBackend{
+			OriginRequestHeaders: originRequestHeaders,
+			OriginUrl:            *configModel.Backend.OriginURL,
+			Type:                 "http",
+			Geofencing:           geofencing,
 		}
-	} else if configModel.Backend.Type == "bucket" {
-		cdnConfig.Backend.BucketBackend = &cdn.BucketBackend{
-			Type:      cdn.PtrString("bucket"),
-			BucketUrl: configModel.Backend.BucketURL,
-			Region:    configModel.Backend.Region,
+	case "bucket":
+		cdnConfig.Backend.BucketBackend = &cdnSdk.BucketBackend{
+			Type:      "bucket",
+			BucketUrl: *configModel.Backend.BucketURL,
+			Region:    *configModel.Backend.Region,
 		}
 	}
 
@@ -1111,7 +1425,7 @@ func convertConfig(ctx context.Context, model *Model) (*cdn.Config, error) {
 		}
 
 		if !utils.IsUndefined(optimizerModel.Enabled) {
-			cdnConfig.Optimizer = cdn.NewOptimizer(optimizerModel.Enabled.ValueBool())
+			cdnConfig.Optimizer = cdnSdk.NewOptimizer(optimizerModel.Enabled.ValueBool())
 		}
 	}
 

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/sfs"
+	sfs "github.com/stackitcloud/stackit-sdk-go/services/sfs/v1api"
 )
 
 var (
@@ -28,7 +28,7 @@ func TestMapFields(t *testing.T) {
 		name     string
 		state    *Model
 		region   string
-		input    *sfs.GetShareResponseShare
+		input    *sfs.Share
 		expected *Model
 		isValid  bool
 	}{
@@ -40,13 +40,13 @@ func TestMapFields(t *testing.T) {
 				ResourcePoolId: testResourcePoolId,
 			},
 			"eu01",
-			&sfs.GetShareResponseShare{
+			&sfs.Share{
 				Id:   testShareId.ValueStringPointer(),
-				Name: utils.Ptr("testname"),
-				ExportPolicy: sfs.NewNullableShareExportPolicy(&sfs.ShareExportPolicy{
-					Name: utils.Ptr("test-policy"),
+				Name: new("testname"),
+				ExportPolicy: *sfs.NewNullableShareExportPolicy(&sfs.ShareExportPolicy{
+					Name: new("test-policy"),
 				}),
-				SpaceHardLimitGigabytes: utils.Ptr[int64](42),
+				SpaceHardLimitGigabytes: utils.Ptr[int32](42),
 			},
 			&Model{
 				Id:                      testId,
@@ -55,7 +55,7 @@ func TestMapFields(t *testing.T) {
 				ShareId:                 testShareId,
 				Name:                    types.StringValue("testname"),
 				ExportPolicyName:        testPolicyName,
-				SpaceHardLimitGigabytes: types.Int64Value(42),
+				SpaceHardLimitGigabytes: types.Int32Value(42),
 				Region:                  types.StringValue("eu01"),
 			},
 			true,
@@ -68,15 +68,15 @@ func TestMapFields(t *testing.T) {
 				ResourcePoolId: testResourcePoolId,
 			},
 			region: "eu01",
-			input: &sfs.GetShareResponseShare{
+			input: &sfs.Share{
 				CreatedAt:               &testTime,
 				Id:                      testShareId.ValueStringPointer(),
-				MountPath:               utils.Ptr("mountpoint"),
-				Name:                    utils.Ptr("testname"),
-				SpaceHardLimitGigabytes: sfs.PtrInt64(42),
-				State:                   utils.Ptr("state"),
-				ExportPolicy: sfs.NewNullableShareExportPolicy(&sfs.ShareExportPolicy{
-					Name: utils.Ptr("test-policy"),
+				MountPath:               new("mountpoint"),
+				Name:                    new("testname"),
+				SpaceHardLimitGigabytes: utils.Ptr[int32](42),
+				State:                   new("state"),
+				ExportPolicy: *sfs.NewNullableShareExportPolicy(&sfs.ShareExportPolicy{
+					Name: new("test-policy"),
 				}),
 			},
 			expected: &Model{
@@ -86,7 +86,7 @@ func TestMapFields(t *testing.T) {
 				Name:                    types.StringValue("testname"),
 				ShareId:                 testShareId,
 				ExportPolicyName:        testPolicyName,
-				SpaceHardLimitGigabytes: types.Int64Value(42),
+				SpaceHardLimitGigabytes: types.Int32Value(42),
 				Region:                  testRegion,
 				MountPath:               types.StringValue("mountpoint"),
 			},
@@ -124,12 +124,12 @@ func TestToCreatePayload(t *testing.T) {
 				ShareId:                 testShareId,
 				Name:                    types.StringValue("testname"),
 				ExportPolicyName:        testPolicyName,
-				SpaceHardLimitGigabytes: types.Int64Value(42),
+				SpaceHardLimitGigabytes: types.Int32Value(42),
 			},
 			sfs.CreateSharePayload{
-				ExportPolicyName:        sfs.NewNullableString(utils.Ptr("test-policy")),
-				Name:                    sfs.PtrString("testname"),
-				SpaceHardLimitGigabytes: sfs.PtrInt64(42),
+				ExportPolicyName:        *sfs.NewNullableString(new("test-policy")),
+				Name:                    "testname",
+				SpaceHardLimitGigabytes: 42,
 			},
 			false,
 		},
@@ -166,12 +166,12 @@ func TestToUpdatePayload(t *testing.T) {
 				ResourcePoolId:          testResourcePoolId,
 				ShareId:                 testShareId,
 				Name:                    types.StringValue("testname"),
-				SpaceHardLimitGigabytes: types.Int64Value(42),
+				SpaceHardLimitGigabytes: types.Int32Value(42),
 				ExportPolicyName:        testPolicyName,
 			},
 			&sfs.UpdateSharePayload{
-				ExportPolicyName:        sfs.NewNullableString(testPolicyName.ValueStringPointer()),
-				SpaceHardLimitGigabytes: sfs.PtrInt64(42),
+				ExportPolicyName:        *sfs.NewNullableString(testPolicyName.ValueStringPointer()),
+				SpaceHardLimitGigabytes: *sfs.NewNullableInt32(utils.Ptr[int32](42)),
 			},
 			false,
 		},
@@ -185,7 +185,7 @@ func TestToUpdatePayload(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				if diff := cmp.Diff(got, tt.want, cmp.AllowUnexported(sfs.NullableString{})); diff != "" {
+				if diff := cmp.Diff(got, tt.want, cmp.AllowUnexported(sfs.NullableString{}, sfs.NullableInt32{})); diff != "" {
 					t.Errorf("Data does not match: %s", diff)
 				}
 			}

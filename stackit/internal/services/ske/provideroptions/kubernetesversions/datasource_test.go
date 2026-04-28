@@ -8,8 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	skeutils "github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/ske"
+	ske "github.com/stackitcloud/stackit-sdk-go/services/ske/v2api"
 )
 
 func TestMapFields(t *testing.T) {
@@ -36,46 +35,46 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "multiple versions realistic payload",
 			input: &ske.ProviderOptions{
-				KubernetesVersions: &[]ske.KubernetesVersion{
+				KubernetesVersions: []ske.KubernetesVersion{
 					{
-						Version:        skeutils.Ptr("1.31.14"),
-						State:          skeutils.Ptr("deprecated"),
+						Version:        new("1.31.14"),
+						State:          new("deprecated"),
 						ExpirationDate: &expDeprecated1,
 						FeatureGates:   &map[string]string{},
 					},
 					{
-						Version:        skeutils.Ptr("1.32.10"),
-						State:          skeutils.Ptr("deprecated"),
+						Version:        new("1.32.10"),
+						State:          new("deprecated"),
 						ExpirationDate: &expDeprecated2,
 						FeatureGates:   &map[string]string{},
 					},
 					{
-						Version:        skeutils.Ptr("1.33.6"),
-						State:          skeutils.Ptr("deprecated"),
+						Version:        new("1.33.6"),
+						State:          new("deprecated"),
 						ExpirationDate: &expDeprecated2,
 						FeatureGates:   &map[string]string{},
 					},
 					{
-						Version:        skeutils.Ptr("1.34.2"),
-						State:          skeutils.Ptr("deprecated"),
+						Version:        new("1.34.2"),
+						State:          new("deprecated"),
 						ExpirationDate: &expDeprecated2,
 						FeatureGates:   &map[string]string{},
 					},
 					{
-						Version:        skeutils.Ptr("1.32.11"),
-						State:          skeutils.Ptr("supported"),
+						Version:        new("1.32.11"),
+						State:          new("supported"),
 						ExpirationDate: nil,
 						FeatureGates:   &map[string]string{},
 					},
 					{
-						Version:        skeutils.Ptr("1.33.7"),
-						State:          skeutils.Ptr("supported"),
+						Version:        new("1.33.7"),
+						State:          new("supported"),
 						ExpirationDate: nil,
 						FeatureGates:   &map[string]string{},
 					},
 					{
-						Version:        skeutils.Ptr("1.34.3"),
-						State:          skeutils.Ptr("supported"),
+						Version:        new("1.34.3"),
+						State:          new("supported"),
 						ExpirationDate: nil,
 						FeatureGates:   &map[string]string{},
 					},
@@ -157,10 +156,10 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "mixed fields with nil feature gates and nil state",
 			input: &ske.ProviderOptions{
-				KubernetesVersions: &[]ske.KubernetesVersion{
+				KubernetesVersions: []ske.KubernetesVersion{
 					{
-						Version:        skeutils.Ptr("1.32.11"),
-						State:          skeutils.Ptr("supported"),
+						Version:        new("1.32.11"),
+						State:          new("supported"),
 						ExpirationDate: nil,
 						FeatureGates: &map[string]string{
 							"SomeGate": "foo",
@@ -222,7 +221,7 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "empty kubernetes versions slice",
 			input: &ske.ProviderOptions{
-				KubernetesVersions: &[]ske.KubernetesVersion{},
+				KubernetesVersions: []ske.KubernetesVersion{},
 			},
 			model: &Model{},
 			expected: &Model{
@@ -236,10 +235,10 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "feature gates empty map",
 			input: &ske.ProviderOptions{
-				KubernetesVersions: &[]ske.KubernetesVersion{
+				KubernetesVersions: []ske.KubernetesVersion{
 					{
-						Version:        skeutils.Ptr("1.33.7"),
-						State:          skeutils.Ptr("supported"),
+						Version:        new("1.33.7"),
+						State:          new("supported"),
 						ExpirationDate: nil,
 						FeatureGates:   &map[string]string{},
 					},
@@ -268,10 +267,10 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "nil model",
 			input: &ske.ProviderOptions{
-				KubernetesVersions: &[]ske.KubernetesVersion{
+				KubernetesVersions: []ske.KubernetesVersion{
 					{
-						Version:        skeutils.Ptr("1.32.11"),
-						State:          skeutils.Ptr("supported"),
+						Version:        new("1.32.11"),
+						State:          new("supported"),
 						ExpirationDate: nil,
 						FeatureGates:   &map[string]string{},
 					},

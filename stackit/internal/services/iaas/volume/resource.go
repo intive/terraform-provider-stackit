@@ -2,13 +2,13 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
-	sdkUtils "github.com/stackitcloud/stackit-sdk-go/core/utils"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 
@@ -31,6 +31,7 @@ import (
 	"github.com/stackitcloud/stackit-sdk-go/core/oapierror"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas/wait"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/conversion"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/utils"
@@ -513,6 +514,11 @@ func (r *volumeResource) Read(ctx context.Context, req resource.ReadRequest, res
 	projectId := model.ProjectId.ValueString()
 	region := r.providerData.GetRegionWithOverride(model.Region)
 	volumeId := model.VolumeId.ValueString()
+	if volumeId == "" {
+		// Resource not yet created; ID is unknown.
+		resp.State.RemoveResource(ctx)
+		return
+	}
 
 	ctx = core.InitProviderContext(ctx)
 
@@ -522,8 +528,8 @@ func (r *volumeResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	volumeResp, err := r.client.GetVolume(ctx, projectId, region, volumeId).Execute()
 	if err != nil {
-		oapiErr, ok := err.(*oapierror.GenericOpenAPIError) //nolint:errorlint //complaining that error.As should be used to catch wrapped errors, but this error should not be wrapped
-		if ok && oapiErr.StatusCode == http.StatusNotFound {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound {
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -644,6 +650,11 @@ func (r *volumeResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	// Delete existing volume
 	err := r.client.DeleteVolume(ctx, projectId, region, volumeId).Execute()
 	if err != nil {
+		var oapiErr *oapierror.GenericOpenAPIError
+		if errors.As(err, &oapiErr) && oapiErr.StatusCode == http.StatusNotFound {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		core.LogAndAddError(ctx, &resp.Diagnostics, "Error deleting volume", fmt.Sprintf("Calling API: %v", err))
 		return
 	}
@@ -695,7 +706,7 @@ func mapFields(ctx context.Context, volumeResp *iaas.Volume, model *Model, regio
 	} else if volumeResp.Id != nil {
 		volumeId = *volumeResp.Id
 	} else {
-		return fmt.Errorf("Volume id not present")
+		return fmt.Errorf("volume id not present")
 	}
 
 	model.Id = utils.BuildInternalTerraformId(model.ProjectId.ValueString(), region, volumeId)
@@ -774,9 +785,9 @@ func toCreatePayload(ctx context.Context, model *Model, source *sourceModel) (*i
 	if model.EncryptionParameters != nil {
 		var keyPayload *[]byte
 		if !utils.IsUndefined(model.EncryptionParameters.KeyPayloadBase64WriteOnly) {
-			keyPayload = sdkUtils.Ptr([]byte(model.EncryptionParameters.KeyPayloadBase64WriteOnly.ValueString()))
+			keyPayload = new([]byte(model.EncryptionParameters.KeyPayloadBase64WriteOnly.ValueString()))
 		} else if !utils.IsUndefined(model.EncryptionParameters.KeyPayloadBase64) {
-			keyPayload = sdkUtils.Ptr([]byte(model.EncryptionParameters.KeyPayloadBase64.ValueString()))
+			keyPayload = new([]byte(model.EncryptionParameters.KeyPayloadBase64.ValueString()))
 		}
 
 		payload.EncryptionParameters = &iaas.VolumeEncryptionParameter{

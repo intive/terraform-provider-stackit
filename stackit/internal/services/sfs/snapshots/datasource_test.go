@@ -11,8 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/sfs"
+	sfs "github.com/stackitcloud/stackit-sdk-go/services/sfs/v1api"
 )
 
 var (
@@ -50,20 +49,20 @@ func TestMapDatasourceFields(t *testing.T) {
 			"eu01",
 			&[]sfs.ResourcePoolSnapshot{
 				{
-					Comment:              sfs.NewNullableString(utils.Ptr("comment 1")),
-					CreatedAt:            utils.Ptr(testTime),
+					Comment:              *sfs.NewNullableString(new("comment 1")),
+					CreatedAt:            new(testTime),
 					ResourcePoolId:       testResourcePoolId.ValueStringPointer(),
-					SnapshotName:         utils.Ptr("snapshot-1"),
-					SizeGigabytes:        utils.Ptr(int64(50)),
-					LogicalSizeGigabytes: utils.Ptr(int64(50)),
+					SnapshotName:         new("snapshot-1"),
+					SizeGigabytes:        new(int32(50)),
+					LogicalSizeGigabytes: new(int32(50)),
 				},
 				{
-					Comment:              sfs.NewNullableString(utils.Ptr("comment 2")),
-					CreatedAt:            utils.Ptr(testTime.Add(1 * time.Hour)),
+					Comment:              *sfs.NewNullableString(new("comment 2")),
+					CreatedAt:            new(testTime.Add(1 * time.Hour)),
 					ResourcePoolId:       testResourcePoolId.ValueStringPointer(),
-					SnapshotName:         utils.Ptr("snapshot-2"),
-					SizeGigabytes:        utils.Ptr(int64(50)),
-					LogicalSizeGigabytes: utils.Ptr(int64(50)),
+					SnapshotName:         new("snapshot-2"),
+					SizeGigabytes:        new(int32(50)),
+					LogicalSizeGigabytes: new(int32(50)),
 				},
 			},
 			&dataSourceModel{
@@ -77,16 +76,16 @@ func TestMapDatasourceFields(t *testing.T) {
 						CreatedAt:            types.StringValue(testTime.Format(time.RFC3339)),
 						ResourcePoolId:       testResourcePoolId,
 						SnapshotName:         types.StringValue("snapshot-1"),
-						SizeGigabytes:        types.Int64Value(50),
-						LogicalSizeGigabytes: types.Int64Value(50),
+						SizeGigabytes:        types.Int32Value(50),
+						LogicalSizeGigabytes: types.Int32Value(50),
 					})),
 					must(types.ObjectValueFrom(context.Background(), snapshotModelType.AttrTypes, snapshotModel{
 						Comment:              types.StringValue("comment 2"),
 						CreatedAt:            types.StringValue(testTime.Add(1 * time.Hour).Format(time.RFC3339)),
 						ResourcePoolId:       testResourcePoolId,
 						SnapshotName:         types.StringValue("snapshot-2"),
-						SizeGigabytes:        types.Int64Value(50),
-						LogicalSizeGigabytes: types.Int64Value(50),
+						SizeGigabytes:        types.Int32Value(50),
+						LogicalSizeGigabytes: types.Int32Value(50),
 					})),
 				}),
 			},

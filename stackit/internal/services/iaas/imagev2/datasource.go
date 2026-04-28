@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/stackitcloud/stackit-sdk-go/services/iaas"
+
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/conversion"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/core"
 	"github.com/stackitcloud/terraform-provider-stackit/stackit/internal/features"
@@ -520,7 +521,7 @@ func mapDataSourceFields(ctx context.Context, imageResp *iaas.Image, model *Data
 		configModel.SecureBoot = types.BoolPointerValue(imageResp.Config.SecureBoot)
 		configModel.UEFI = types.BoolPointerValue(imageResp.Config.Uefi)
 		configModel.VideoModel = types.StringPointerValue(imageResp.Config.GetVideoModel())
-		configModel.VirtioScsi = types.BoolPointerValue(iaas.PtrBool(imageResp.Config.GetVirtioScsi()))
+		configModel.VirtioScsi = types.BoolPointerValue(new(imageResp.Config.GetVirtioScsi()))
 
 		configObject, diags = types.ObjectValue(configTypes, map[string]attr.Value{
 			"boot_menu":                configModel.BootMenu,

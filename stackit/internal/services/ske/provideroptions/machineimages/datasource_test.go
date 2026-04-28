@@ -8,8 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	skeutils "github.com/stackitcloud/stackit-sdk-go/core/utils"
-	"github.com/stackitcloud/stackit-sdk-go/services/ske"
+	ske "github.com/stackitcloud/stackit-sdk-go/services/ske/v2api"
 )
 
 func TestMapFields(t *testing.T) {
@@ -31,17 +30,17 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "single machine image single version full fields",
 			input: &ske.ProviderOptions{
-				MachineImages: &[]ske.MachineImage{
+				MachineImages: []ske.MachineImage{
 					{
-						Name: skeutils.Ptr("flatcar"),
-						Versions: &[]ske.MachineImageVersion{
+						Name: new("flatcar"),
+						Versions: []ske.MachineImageVersion{
 							{
-								Version:        skeutils.Ptr("4230.2.1"),
-								State:          skeutils.Ptr("supported"),
+								Version:        new("4230.2.1"),
+								State:          new("supported"),
 								ExpirationDate: &timestamp,
-								Cri: &[]ske.CRI{
+								Cri: []ske.CRI{
 									{
-										Name: skeutils.Ptr(ske.CRINAME_CONTAINERD),
+										Name: new("containerd"),
 									},
 								},
 							},
@@ -65,7 +64,7 @@ func TestMapFields(t *testing.T) {
 										"cri": types.ListValueMust(
 											types.StringType,
 											[]attr.Value{
-												types.StringValue(string(ske.CRINAME_CONTAINERD)),
+												types.StringValue("containerd"),
 											},
 										),
 									}),
@@ -80,17 +79,17 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "single machine image multiple versions mixed fields",
 			input: &ske.ProviderOptions{
-				MachineImages: &[]ske.MachineImage{
+				MachineImages: []ske.MachineImage{
 					{
-						Name: skeutils.Ptr("flatcar"),
-						Versions: &[]ske.MachineImageVersion{
+						Name: new("flatcar"),
+						Versions: []ske.MachineImageVersion{
 							{
-								Version:        skeutils.Ptr("4230.2.1"),
-								State:          skeutils.Ptr("supported"),
+								Version:        new("4230.2.1"),
+								State:          new("supported"),
 								ExpirationDate: &timestamp,
-								Cri: &[]ske.CRI{
+								Cri: []ske.CRI{
 									{
-										Name: skeutils.Ptr(ske.CRINAME_CONTAINERD),
+										Name: new("containerd"),
 									},
 								},
 							},
@@ -121,7 +120,7 @@ func TestMapFields(t *testing.T) {
 										"cri": types.ListValueMust(
 											types.StringType,
 											[]attr.Value{
-												types.StringValue(string(ske.CRINAME_CONTAINERD)),
+												types.StringValue("containerd"),
 											},
 										),
 									}),
@@ -146,51 +145,51 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "multiple machine images mixed versions",
 			input: &ske.ProviderOptions{
-				MachineImages: &[]ske.MachineImage{
+				MachineImages: []ske.MachineImage{
 					{
-						Name: skeutils.Ptr("flatcar"),
-						Versions: &[]ske.MachineImageVersion{
+						Name: new("flatcar"),
+						Versions: []ske.MachineImageVersion{
 							{
-								Version:        skeutils.Ptr("4230.2.1"),
-								State:          skeutils.Ptr("deprecated"),
+								Version:        new("4230.2.1"),
+								State:          new("deprecated"),
 								ExpirationDate: &timestamp,
-								Cri: &[]ske.CRI{
+								Cri: []ske.CRI{
 									{
-										Name: skeutils.Ptr(ske.CRINAME_CONTAINERD),
+										Name: new("containerd"),
 									},
 								},
 							},
 							{
-								Version:        skeutils.Ptr("4230.2.3"),
-								State:          skeutils.Ptr("supported"),
+								Version:        new("4230.2.3"),
+								State:          new("supported"),
 								ExpirationDate: nil, // no expiration
-								Cri: &[]ske.CRI{
+								Cri: []ske.CRI{
 									{
-										Name: skeutils.Ptr(ske.CRINAME_CONTAINERD),
+										Name: new("containerd"),
 									},
 								},
 							},
 							{
-								Version:        skeutils.Ptr("4459.2.1"),
-								State:          skeutils.Ptr("preview"),
+								Version:        new("4459.2.1"),
+								State:          new("preview"),
 								ExpirationDate: nil,
-								Cri: &[]ske.CRI{
+								Cri: []ske.CRI{
 									{
-										Name: skeutils.Ptr(ske.CRINAME_CONTAINERD),
+										Name: new("containerd"),
 									},
 								},
 							},
 						},
 					},
 					{
-						Name: skeutils.Ptr("ubuntu"),
-						Versions: &[]ske.MachineImageVersion{
+						Name: new("ubuntu"),
+						Versions: []ske.MachineImageVersion{
 							{
-								Version:        skeutils.Ptr("2204.20250728.0"),
-								State:          skeutils.Ptr("supported"),
+								Version:        new("2204.20250728.0"),
+								State:          new("supported"),
 								ExpirationDate: nil,
 								// empty CRI slice
-								Cri: &[]ske.CRI{},
+								Cri: []ske.CRI{},
 							},
 						},
 					},
@@ -212,7 +211,7 @@ func TestMapFields(t *testing.T) {
 										"cri": types.ListValueMust(
 											types.StringType,
 											[]attr.Value{
-												types.StringValue(string(ske.CRINAME_CONTAINERD)),
+												types.StringValue("containerd"),
 											},
 										),
 									}),
@@ -223,7 +222,7 @@ func TestMapFields(t *testing.T) {
 										"cri": types.ListValueMust(
 											types.StringType,
 											[]attr.Value{
-												types.StringValue(string(ske.CRINAME_CONTAINERD)),
+												types.StringValue("containerd"),
 											},
 										),
 									}),
@@ -234,7 +233,7 @@ func TestMapFields(t *testing.T) {
 										"cri": types.ListValueMust(
 											types.StringType,
 											[]attr.Value{
-												types.StringValue(string(ske.CRINAME_CONTAINERD)),
+												types.StringValue("containerd"),
 											},
 										),
 									}),
@@ -281,7 +280,7 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "empty machine images slice",
 			input: &ske.ProviderOptions{
-				MachineImages: &[]ske.MachineImage{},
+				MachineImages: []ske.MachineImage{},
 			},
 			expected: &Model{
 				MachineImages: types.ListValueMust(
@@ -294,13 +293,13 @@ func TestMapFields(t *testing.T) {
 		{
 			name: "version without cri and without expiration",
 			input: &ske.ProviderOptions{
-				MachineImages: &[]ske.MachineImage{
+				MachineImages: []ske.MachineImage{
 					{
-						Name: skeutils.Ptr("ubuntu"),
-						Versions: &[]ske.MachineImageVersion{
+						Name: new("ubuntu"),
+						Versions: []ske.MachineImageVersion{
 							{
-								Version:        skeutils.Ptr("2204.20250728.0"),
-								State:          skeutils.Ptr("supported"),
+								Version:        new("2204.20250728.0"),
+								State:          new("supported"),
 								ExpirationDate: nil,
 								Cri:            nil, // explicit nil => empty list
 							},
